@@ -57,9 +57,6 @@ class PlankEvaluator extends BasePoseEvaluator {
         isPostureCorrect = false;
         isBackCorrect = false;
         feedback = 'Nâng hông lên cao, siết chặt cơ bụng!';
-      } else if (horizontalAngle > 25) {
-        isPostureCorrect = false;
-        feedback = 'Giữ thân người nằm ngang song song mặt sàn!';
       } else {
         feedback = 'Tư thế tuyệt vời! Hãy duy trì gồng bụng.';
       }
