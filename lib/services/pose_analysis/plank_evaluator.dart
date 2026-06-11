@@ -7,61 +7,90 @@ class PlankEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.55;
 
   @override
-  void reset() {
-    // Plank không cần biến trạng thái đếm reps vì tính theo thời gian giữ tư thế
-  }
+  void reset() {}
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
-    return landmark != null && landmark.likelihood > _landmarkConfidenceThreshold;
+    return landmark != null &&
+        landmark.likelihood > _landmarkConfidenceThreshold;
   }
 
   @override
   PoseAnalysisResult evaluate(Pose pose) {
     bool isPostureCorrect = true;
-    String feedback = 'Đang làm tốt lắm! Hãy tiếp tục.';
+    String feedback = 'Tư thế tuyệt vời! Hãy duy trì gồng bụng.';
     bool isBackCorrect = true;
     bool isLegsCorrect = true;
     bool isArmsCorrect = true;
 
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
-    final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
-    final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
+    // 1. Kiểm tra độ tin cậy của từng bên
+    bool isRightSideVisible =
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightShoulder]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightElbow]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightHip]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightAnkle]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightWrist]);
 
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
-    final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
-    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
+    bool isLeftSideVisible =
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftShoulder]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftElbow]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftHip]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftAnkle]) &&
+        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftWrist]);
 
-    // Lấy dữ liệu bên rõ hơn
-    PoseLandmark? shoulder = _isLandmarkVisible(rightShoulder) ? rightShoulder : leftShoulder;
-    PoseLandmark? hip = _isLandmarkVisible(rightHip) ? rightHip : leftHip;
-    PoseLandmark? knee = _isLandmarkVisible(rightKnee) ? rightKnee : leftKnee;
-    PoseLandmark? ankle = _isLandmarkVisible(rightAnkle) ? rightAnkle : leftAnkle;
+    // 2. Chọn bên để đánh giá
+    // Ưu tiên bên phải, nếu không rõ thì lấy bên trái
+    final bool useRightSide = isRightSideVisible;
+    final bool useLeftSide = !isRightSideVisible && isLeftSideVisible;
 
-    if (_isLandmarkVisible(shoulder) && _isLandmarkVisible(hip) && _isLandmarkVisible(knee)) {
-      // A. Đo góc thẳng của lưng (Vai - Hông - Gối)
-      double hipAngle = PoseMath.calculateAngle(shoulder!, hip!, knee!);
-      
-      // B. Đo góc nằm ngang của toàn bộ cơ thể
-      double horizontalAngle = 0.0;
-      if (_isLandmarkVisible(ankle)) {
-        horizontalAngle = PoseMath.calculateAngleToHorizontal(shoulder, ankle!);
-      }
+    if (useRightSide || useLeftSide) {
+      final shoulder = useRightSide
+          ? pose.landmarks[PoseLandmarkType.rightShoulder]!
+          : pose.landmarks[PoseLandmarkType.leftShoulder]!;
+      final elbow = useRightSide
+          ? pose.landmarks[PoseLandmarkType.rightElbow]!
+          : pose.landmarks[PoseLandmarkType.leftElbow]!;
+      final hip = useRightSide
+          ? pose.landmarks[PoseLandmarkType.rightHip]!
+          : pose.landmarks[PoseLandmarkType.leftHip]!;
+      final ankle = useRightSide
+          ? pose.landmarks[PoseLandmarkType.rightAnkle]!
+          : pose.landmarks[PoseLandmarkType.leftAnkle]!;
+      final wrist = useRightSide
+          ? pose.landmarks[PoseLandmarkType.rightWrist]!
+          : pose.landmarks[PoseLandmarkType.leftWrist]!;
 
-      if (hipAngle < 165) {
-        isPostureCorrect = false;
-        isBackCorrect = false;
-        feedback = 'Hạ hông xuống thấp một chút!';
-      } else if (hipAngle > 195) {
-        isPostureCorrect = false;
-        isBackCorrect = false;
-        feedback = 'Nâng hông lên cao, siết chặt cơ bụng!';
+      // 3. Tính toán góc
+      // Góc khuỷu tay: Vai - Khuỷu - cổ tay (để đảm bảo khuỷu tay dưới vai)
+      double elbowAngle = PoseMath.getElbowAngle(shoulder, elbow, wrist);
+      // Góc thân người: Vai - Hông - Gót chân
+      double bodyLineAngle;
+      if(shoulder.x < hip.x) {
+        bodyLineAngle = PoseMath.calculateAngle(shoulder, hip, ankle);
       } else {
-        feedback = 'Tư thế tuyệt vời! Hãy duy trì gồng bụng.';
+        bodyLineAngle = PoseMath.calculateAngle(ankle, hip, shoulder);
+      }
+      print('--- Plank Evaluation ---');
+      print('Side: ${useRightSide ? "Right" : "Left"}');
+      print('Elbow Angle: ${elbowAngle.toStringAsFixed(2)}°');
+      print('Body Line Angle: ${bodyLineAngle.toStringAsFixed(2)}°');
+      // 4. Logic đánh giá
+      if (elbowAngle < (useRightSide?70:250 )|| elbowAngle > (useRightSide?110:300)) {
+        isPostureCorrect = false;
+        isArmsCorrect = false;
+        feedback = 'Đặt cẳng tay lên sàn, khuỷu tay vuông góc ngay dưới vai.';
+      } else if (bodyLineAngle <170 ) {
+        isPostureCorrect = false;
+        isBackCorrect = false;
+        feedback = 'Thân người bị võng, hãy siết chặt cơ bụng!';
+      } else if (bodyLineAngle > 195) {
+        isPostureCorrect = false;
+        isBackCorrect = false;
+        feedback = 'Hông quá cao, hãy hạ thấp người xuống cho thẳng hàng!';
       }
     } else {
-      feedback = 'Nằm nghiêng trước camera để thấy được vai, hông và đầu gối.';
+      isPostureCorrect = false;
+      feedback =
+          'Vui lòng nằm nghiêng để camera thấy rõ vai, khuỷu tay, hông và gót chân.';
     }
 
     return PoseAnalysisResult(

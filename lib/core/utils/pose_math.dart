@@ -17,6 +17,11 @@ static double calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
   
   return angle;
 }
+// hàm này tính góc "đúng" cho cả 2 bên
+static double getElbowAngle(PoseLandmark s, PoseLandmark e, PoseLandmark w) {
+  double angle = PoseMath.calculateAngle(s, e, w);
+  return angle > 180 ? 360 - angle : angle;
+}
 
   /// Tính khoảng cách Euclidean giữa 2 điểm
   static double calculateDistance(PoseLandmark a, PoseLandmark b) {
