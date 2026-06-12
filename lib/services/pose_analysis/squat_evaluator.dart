@@ -10,12 +10,17 @@ class SquatEvaluator extends BasePoseEvaluator {
 
   // Biến lưu trữ mốc khi đứng thẳng
   double? _standingHipY;
+  
+  // Bộ lọc nhiễu khung hình
+  int _errorFrames = 0;
+  final int _maxAllowedErrorFrames = 5;
 
   @override
   void reset() {
     _motionState = 'UP';
     _isPostureCorrectInCurrentRep = true;
     _standingHipY = null;
+    _errorFrames = 0;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -44,23 +49,34 @@ class SquatEvaluator extends BasePoseEvaluator {
     double kneeAngle = PoseMath.getElbowAngle(rightHip, rightKnee!, rightAnkle!);
 
     // 2. Thiết lập mốc đứng thẳng (Calibrate)
-    // Nếu góc gối lớn (>160), coi là đang đứng yên -> lưu lại độ cao hông làm mốc
     if (kneeAngle > 160) {
       _standingHipY = currentHipY;
     }
 
-    // 3. Kiểm tra tư thế lưng
+    // 3. Kiểm tra tư thế lưng với bộ lọc nhiễu
+    bool isCurrentPostureCorrect = true;
     if (_isLandmarkVisible(rightShoulder) && _isLandmarkVisible(rightHip)) {
       double backLeanAngle = PoseMath.calculateAngleToVertical(rightShoulder!, rightHip);
       if (backLeanAngle > 45) {
-        isPostureCorrect = false;
+        isCurrentPostureCorrect = false;
         feedback = 'Giữ lưng thẳng, đừng đổ người quá nhiều!';
-        if (_motionState == 'DOWN') _isPostureCorrectInCurrentRep = false;
       }
     }
 
+    // Cập nhật bộ lọc lỗi
+    if (!isCurrentPostureCorrect) {
+      _errorFrames++;
+    } else {
+      _errorFrames = 0; // Reset khi tư thế đúng trở lại
+    }
+
+    // Áp dụng bộ lọc: chỉ đánh dấu sai nếu vi phạm liên tiếp 5 khung hình
+    if (_errorFrames > _maxAllowedErrorFrames) {
+      isPostureCorrect = false;
+      if (_motionState == 'DOWN') _isPostureCorrectInCurrentRep = false;
+    }
+
     // 4. Logic Squat kết hợp (Góc gối + Độ hạ hông)
-    // Ngưỡng hạ hông: cần thấp hơn mốc đứng thẳng một khoảng (ví dụ 0.1 đơn vị tỷ lệ)
     bool isSquattingDeepEnough = _standingHipY != null && (currentHipY - _standingHipY!) > PoseMath.calculateDistance(rightHip, rightKnee)*0.7 ;
 
     if (kneeAngle < 110 && isSquattingDeepEnough) {
@@ -74,7 +90,7 @@ class SquatEvaluator extends BasePoseEvaluator {
           shouldCountRep = true;
           feedback = 'Tuyệt vời!';
         } else {
-          
+          feedback = 'Lần tập không được tính do sai tư thế!';
         }
         _isPostureCorrectInCurrentRep = true;
       }
@@ -83,7 +99,7 @@ class SquatEvaluator extends BasePoseEvaluator {
     return PoseAnalysisResult(
       isPostureCorrect: isPostureCorrect,
       feedbackMessage: feedback,
-      isBackCorrect: true, 
+      isBackCorrect: _errorFrames <= _maxAllowedErrorFrames,
       isLegsCorrect: true,
       isArmsCorrect: true,
       shouldCountRep: shouldCountRep,

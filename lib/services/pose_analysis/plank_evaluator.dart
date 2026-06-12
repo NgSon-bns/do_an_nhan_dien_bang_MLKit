@@ -6,8 +6,14 @@ import 'pose_analysis_result.dart';
 class PlankEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.55;
 
+  // Bộ lọc nhiễu
+  int _errorFrames = 0;
+  final int _maxAllowedErrorFrames = 30; // Plank thường cần ngưỡng lọc cao hơn squat/pushup
+
   @override
-  void reset() {}
+  void reset() {
+    _errorFrames = 0;
+  }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
     return landmark != null &&
@@ -21,26 +27,16 @@ class PlankEvaluator extends BasePoseEvaluator {
     bool isBackCorrect = true;
     bool isLegsCorrect = true;
     bool isArmsCorrect = true;
+    String feedbackErr = '';
 
-    // 1. Kiểm tra độ tin cậy của từng bên
-    bool isRightSideVisible =
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightShoulder]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightElbow]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightHip]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightAnkle]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.rightWrist]);
-
-    bool isLeftSideVisible =
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftShoulder]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftElbow]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftHip]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftAnkle]) &&
-        _isLandmarkVisible(pose.landmarks[PoseLandmarkType.leftWrist]);
-
-    // 2. Chọn bên để đánh giá
-    // Ưu tiên bên phải, nếu không rõ thì lấy bên trái
-    final bool useRightSide = isRightSideVisible;
-    final bool useLeftSide = !isRightSideVisible && isLeftSideVisible;
+    final bool useRightSide =
+        (pose.landmarks[PoseLandmarkType.rightShoulder]?.x ??
+            pose.landmarks[PoseLandmarkType.leftShoulder]?.x ??
+            0) <
+        (pose.landmarks[PoseLandmarkType.rightHip]?.x ??
+            pose.landmarks[PoseLandmarkType.leftHip]?.x ??
+            0);
+    final bool useLeftSide = !useRightSide;
 
     if (useRightSide || useLeftSide) {
       final shoulder = useRightSide
@@ -60,29 +56,38 @@ class PlankEvaluator extends BasePoseEvaluator {
           : pose.landmarks[PoseLandmarkType.leftWrist]!;
 
       // 3. Tính toán góc
-      // Góc khuỷu tay: Vai - Khuỷu - cổ tay (để đảm bảo khuỷu tay dưới vai)
       double elbowAngle = PoseMath.getElbowAngle(shoulder, elbow, wrist);
-      // Góc thân người: Vai - Hông - Gót chân
-      double bodyLineAngle;
-      if(shoulder.x < hip.x) {
-        bodyLineAngle = PoseMath.calculateAngle(shoulder, hip, ankle);
+      double bodyLineAngle = (shoulder.x < hip.x)
+          ? PoseMath.calculateAngle(shoulder, hip, ankle)
+          : PoseMath.calculateAngle(ankle, hip, shoulder);
+
+      // 4. Kiểm tra tư thế (Cập nhật bộ lọc lỗi)
+      bool isCurrentPostureCorrect = true;
+      if (elbowAngle < 70 || elbowAngle > 120) {
+        isCurrentPostureCorrect = false;
+        feedbackErr =
+            'Đặt cẳng tay lên sàn, khuỷu tay vuông góc ngay dưới vai.';
+        isArmsCorrect = false;
+      } else if (bodyLineAngle < 175) {
+        isCurrentPostureCorrect = false;
+        feedbackErr = 'Thân người bị võng, hãy siết chặt cơ bụng!';
+        isBackCorrect = false;
+      } else if (bodyLineAngle > 210) {
+        isCurrentPostureCorrect = false;
+        feedbackErr = 'Hông quá cao, hãy hạ thấp người xuống cho thẳng hàng!';
+        isBackCorrect = false;
+      }
+      print("Body Line Angle: $bodyLineAngle $useRightSide $elbowAngle");
+      // Logic bộ lọc nhiễu
+      if (!isCurrentPostureCorrect) {
+        _errorFrames++;
       } else {
-        bodyLineAngle = PoseMath.calculateAngle(ankle, hip, shoulder);
+        _errorFrames = 0;
       }
 
-      // 4. Logic đánh giá
-      if (elbowAngle < (useRightSide?70:250 )|| elbowAngle > (useRightSide?110:300)) {
+      if (_errorFrames > _maxAllowedErrorFrames) {
         isPostureCorrect = false;
-        isArmsCorrect = false;
-        feedback = 'Đặt cẳng tay lên sàn, khuỷu tay vuông góc ngay dưới vai.';
-      } else if (bodyLineAngle <170 ) {
-        isPostureCorrect = false;
-        isBackCorrect = false;
-        feedback = 'Thân người bị võng, hãy siết chặt cơ bụng!';
-      } else if (bodyLineAngle > 195) {
-        isPostureCorrect = false;
-        isBackCorrect = false;
-        feedback = 'Hông quá cao, hãy hạ thấp người xuống cho thẳng hàng!';
+        feedback = feedbackErr;
       }
     } else {
       isPostureCorrect = false;
