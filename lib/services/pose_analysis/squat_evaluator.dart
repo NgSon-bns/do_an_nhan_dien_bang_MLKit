@@ -8,10 +8,14 @@ class SquatEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
 
+  // Biến lưu trữ mốc khi đứng thẳng
+  double? _standingHipY;
+
   @override
   void reset() {
     _motionState = 'UP';
     _isPostureCorrectInCurrentRep = true;
+    _standingHipY = null;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -20,83 +24,68 @@ class SquatEvaluator extends BasePoseEvaluator {
 
   @override
   PoseAnalysisResult evaluate(Pose pose) {
+    String feedback = 'Đang làm tốt lắm!';
     bool isPostureCorrect = true;
-    String feedback = 'Đang làm tốt lắm! Hãy tiếp tục.';
-    bool isBackCorrect = true;
-    bool isLegsCorrect = true;
-    bool isArmsCorrect = true;
     bool shouldCountRep = false;
 
     final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
-    final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
     final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
     final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
-    // Kiểm tra độ ổn định của landmark trước khi tính toán
     if (!_isLandmarkVisible(leftHip) || !_isLandmarkVisible(rightHip) || 
-        !_isLandmarkVisible(leftKnee) || !_isLandmarkVisible(rightKnee)) {
-      return PoseAnalysisResult(
-        isPostureCorrect: false,
-        feedbackMessage: 'Hãy điều chỉnh tư thế để camera thấy rõ gối và hông.',
-        isBackCorrect: true,
-        isLegsCorrect: true,
-        isArmsCorrect: true,
-        shouldCountRep: false,
-      );
+        !_isLandmarkVisible(rightKnee) || !_isLandmarkVisible(rightAnkle)) {
+      return PoseAnalysisResult(isPostureCorrect: false, feedbackMessage: 'Điều chỉnh tư thế để thấy rõ hông và chân.');
     }
 
-    // Tính góc gối
-    double kneeAngle = PoseMath.getElbowAngle(rightHip!, rightKnee!, rightAnkle!);
+    // 1. Tính toán vị trí hiện tại
+    double currentHipY = (leftHip!.y + rightHip!.y) / 2;
+    double kneeAngle = PoseMath.getElbowAngle(rightHip, rightKnee!, rightAnkle!);
 
-    // Tính tỷ lệ gối/hông (kneeGap / hipGap)
+    // 2. Thiết lập mốc đứng thẳng (Calibrate)
+    // Nếu góc gối lớn (>160), coi là đang đứng yên -> lưu lại độ cao hông làm mốc
+    if (kneeAngle > 160) {
+      _standingHipY = currentHipY;
+    }
 
-
-    // 1. Cập nhật mốc _baseRatio khi đứng thẳng
-    
-
-    // 2. Kiểm tra tư thế lưng (nghiêng về trước)
+    // 3. Kiểm tra tư thế lưng
     if (_isLandmarkVisible(rightShoulder) && _isLandmarkVisible(rightHip)) {
       double backLeanAngle = PoseMath.calculateAngleToVertical(rightShoulder!, rightHip);
       if (backLeanAngle > 45) {
         isPostureCorrect = false;
-        isBackCorrect = false;
-        feedback = 'Giữ ngực cao và thẳng lưng lên!';
+        feedback = 'Giữ lưng thẳng, đừng đổ người quá nhiều!';
+        if (_motionState == 'DOWN') _isPostureCorrectInCurrentRep = false;
       }
     }
 
-    // Nếu phát hiện lỗi tư thế trong khi đang thực hiện squat (không đứng thẳng)
-    if (!isPostureCorrect && (kneeAngle < 155 || _motionState == 'DOWN')) {
-      _isPostureCorrectInCurrentRep = false;
-    }
+    // 4. Logic Squat kết hợp (Góc gối + Độ hạ hông)
+    // Ngưỡng hạ hông: cần thấp hơn mốc đứng thẳng một khoảng (ví dụ 0.1 đơn vị tỷ lệ)
+    bool isSquattingDeepEnough = _standingHipY != null && (currentHipY - _standingHipY!) > PoseMath.calculateDistance(rightHip, rightKnee)*0.7 ;
 
-    // 3. Logic squat và phát hiện khép gối
-    if (kneeAngle < 100) {
-      if (_motionState == 'UP') _motionState = 'DOWN';
-      
-    } else if (kneeAngle > 155) {
+    if (kneeAngle < 110 && isSquattingDeepEnough) {
+      if (_motionState == 'UP') {
+        _motionState = 'DOWN';
+      }
+    } else if (kneeAngle > 150) {
       if (_motionState == 'DOWN') {
         _motionState = 'UP';
         if (_isPostureCorrectInCurrentRep) {
           shouldCountRep = true;
+          feedback = 'Tuyệt vời!';
         } else {
-          feedback = 'Lần tập không được tính do sai tư thế!';
+          
         }
-        _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
+        _isPostureCorrectInCurrentRep = true;
       }
     }
 
-    // Phản hồi bổ sung
-    if (isPostureCorrect && _motionState == 'UP') {
-      feedback = 'Hạ hông sâu xuống dưới song song đùi.';
-    }
     return PoseAnalysisResult(
       isPostureCorrect: isPostureCorrect,
       feedbackMessage: feedback,
-      isBackCorrect: isBackCorrect,
-      isLegsCorrect: isLegsCorrect,
-      isArmsCorrect: isArmsCorrect,
+      isBackCorrect: true, 
+      isLegsCorrect: true,
+      isArmsCorrect: true,
       shouldCountRep: shouldCountRep,
     );
   }
