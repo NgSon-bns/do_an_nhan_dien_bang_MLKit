@@ -88,6 +88,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
 
     try {
+      
       await _cameraController.initialize();
       if (!mounted) return;
 
@@ -130,7 +131,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   /// Đảo camera trước/sau
   Future<void> _toggleCamera() async {
     if (widget.cameras.length < 2) return;
-    
+     setState(() {
+      _isCameraInitialized = false;
+    });
     // Đóng camera hiện tại
     await _cameraController.stopImageStream();
     await _cameraController.dispose();
