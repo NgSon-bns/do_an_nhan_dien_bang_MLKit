@@ -6,10 +6,12 @@ import 'pose_analysis_result.dart';
 class JumpingJackEvaluator extends BasePoseEvaluator {
   String _motionState = 'NEUTRAL';
   final double _landmarkConfidenceThreshold = 0.55;
+  bool _isPostureCorrectInCurrentRep = true;
 
   @override
   void reset() {
     _motionState = 'NEUTRAL';
+    _isPostureCorrectInCurrentRep = true;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -63,6 +65,11 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
         feedback = 'Nhảy dạng chân rộng ra hơn!';
       }
 
+      // Nếu phát hiện lỗi tư thế trong khi đang nhảy (không ở vị trí khép chân khép tay hoàn toàn)
+      if (!isPostureCorrect && (_motionState == 'ACTIVE' || feetAreWide || armsAreUp)) {
+        _isPostureCorrectInCurrentRep = false;
+      }
+
       // Thuật toán đếm lần
       if (_motionState == 'NEUTRAL') {
         if (feetAreWide && armsAreUp) {
@@ -71,7 +78,12 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
       } else if (_motionState == 'ACTIVE') {
         if (feetAreClosed && armsAreDown) {
           _motionState = 'NEUTRAL'; // Về lại vị trí chuẩn
-          shouldCountRep = true;
+          if (_isPostureCorrectInCurrentRep) {
+            shouldCountRep = true;
+          } else {
+            feedback = 'Lần tập không được tính do sai tư thế!';
+          }
+          _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
         }
       }
 

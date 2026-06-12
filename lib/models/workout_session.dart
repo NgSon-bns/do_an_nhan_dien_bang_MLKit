@@ -29,10 +29,17 @@ class WorkoutSession {
     activeHoldSeconds = 0;
   }
 
-  void updateCalories(double caloriesPerMin) {
-    // Nếu là bài tập tính thời gian (Plank), tính theo activeHoldSeconds
-    // Nếu là các bài tập đếm lần, tính theo tổng thời gian elapsedSeconds
-    double minutes = elapsedSeconds / 60.0;
-    caloriesBurned = minutes * caloriesPerMin;
+  void updateCalories(double caloriesPerMin, {required bool isDurationBased}) {
+    if (isDurationBased) {
+      // Đối với bài tập tính thời gian (Plank), tính theo activeHoldSeconds (thời gian giữ chuẩn)
+      double minutes = activeHoldSeconds / 60.0;
+      caloriesBurned = minutes * caloriesPerMin;
+    } else {
+      // Đối với các bài tập đếm lần (Squat, Chống đẩy, Jumping Jack)
+      // Tính calo trực tiếp dựa trên số lần tập thành công (reps)
+      // Giả định tốc độ tập trung bình chuẩn là 20 reps/phút
+      double caloriesPerRep = caloriesPerMin / 20.0;
+      caloriesBurned = counter * caloriesPerRep;
+    }
   }
 }

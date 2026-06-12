@@ -69,10 +69,7 @@ class PlankEvaluator extends BasePoseEvaluator {
       } else {
         bodyLineAngle = PoseMath.calculateAngle(ankle, hip, shoulder);
       }
-      print('--- Plank Evaluation ---');
-      print('Side: ${useRightSide ? "Right" : "Left"}');
-      print('Elbow Angle: ${elbowAngle.toStringAsFixed(2)}°');
-      print('Body Line Angle: ${bodyLineAngle.toStringAsFixed(2)}°');
+
       // 4. Logic đánh giá
       if (elbowAngle < (useRightSide?70:250 )|| elbowAngle > (useRightSide?110:300)) {
         isPostureCorrect = false;

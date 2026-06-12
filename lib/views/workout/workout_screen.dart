@@ -123,7 +123,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         }
         
         // Cập nhật calo dựa trên chỉ số bài tập
-        _session.updateCalories(widget.exercise.caloriesPerMin);
+        _session.updateCalories(
+          widget.exercise.caloriesPerMin,
+          isDurationBased: widget.exercise.isDurationBased,
+        );
       });
     });
   }
@@ -162,18 +165,32 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return;
     }
 
+    bool hasFullBody = false;
+    if (poses.isNotEmpty) {
+      hasFullBody = _checkFullBodyVisibility(poses.first, widget.exercise.type);
+    }
+
     setState(() {
       _poses = poses;
       _isPoseDetected = poses.isNotEmpty;
     });
 
     if (poses.isNotEmpty) {
-      _analyzePose(poses.first);
+      if (hasFullBody) {
+        _analyzePose(poses.first);
+      } else {
+        _evaluator.reset(); // Reset trạng thái chuyển động khi mất dấu toàn thân
+        setState(() {
+          _session.isPostureCorrect = true; // Trạng thái chờ/bình thường
+          _session.feedbackMessage = 'Hiện chưa xác định được người trong khung hình. Vui lòng lùi lại.';
+        });
+      }
     } else {
+      _evaluator.reset(); // Reset trạng thái khi không phát hiện thấy người
       // Khi không nhận diện được người, đặt lại các phản hồi cơ bản
       setState(() {
         _session.isPostureCorrect = true;
-        _session.feedbackMessage = 'Hãy đứng lùi lại để AI thấy toàn bộ cơ thể.';
+        _session.feedbackMessage = 'Hiện chưa xác định được người trong khung hình. Vui lòng lùi lại.';
       });
     }
 
@@ -200,6 +217,115 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     });
 
     _wasPostureCorrectLastFrame = result.isPostureCorrect;
+  }
+
+  /// Thuật toán kiểm tra toàn thân người hoàn chỉnh trước khi nhận diện (Độ tin cậy >= 0.70)
+  bool _checkFullBodyVisibility(Pose pose, ExerciseType type) {
+    const double standardConfidence = 0.75;
+    const double strictConfidence = 0.82;
+
+    bool isJointVisible(PoseLandmark? landmark, double threshold) {
+      return landmark != null && landmark.likelihood >= threshold;
+    }
+
+    // 1. Đối với Squat và Jumping Jack (bắt buộc trực diện, đủ 2 bên trái & phải)
+    if (type == ExerciseType.squat || type == ExerciseType.jumpingJack) {
+      final standardJoints = [
+        PoseLandmarkType.leftShoulder,
+        PoseLandmarkType.rightShoulder,
+        PoseLandmarkType.leftHip,
+        PoseLandmarkType.rightHip,
+        if (type == ExerciseType.jumpingJack) ...[
+          PoseLandmarkType.leftElbow,
+          PoseLandmarkType.rightElbow,
+          PoseLandmarkType.leftWrist,
+          PoseLandmarkType.rightWrist,
+        ],
+      ];
+
+      final strictJoints = [
+        PoseLandmarkType.leftKnee,
+        PoseLandmarkType.rightKnee,
+        PoseLandmarkType.leftAnkle,
+        PoseLandmarkType.rightAnkle,
+      ];
+
+      for (final joint in standardJoints) {
+        if (!isJointVisible(pose.landmarks[joint], standardConfidence)) {
+          return false;
+        }
+      }
+
+      for (final joint in strictJoints) {
+        if (!isJointVisible(pose.landmarks[joint], strictConfidence)) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    // 2. Đối với Push-up, Plank (bài tập nghiêng hoặc bán nghiêng)
+    // Chỉ yêu cầu ít nhất một bên (Trái hoặc Phải) hiển thị đầy đủ khớp
+    final leftSideStandard = [
+      PoseLandmarkType.leftShoulder,
+      PoseLandmarkType.leftHip,
+      if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
+        PoseLandmarkType.leftElbow,
+        PoseLandmarkType.leftWrist,
+      ]
+    ];
+    final leftSideStrict = [
+      PoseLandmarkType.leftKnee,
+      PoseLandmarkType.leftAnkle,
+    ];
+
+    final rightSideStandard = [
+      PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.rightHip,
+      if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
+        PoseLandmarkType.rightElbow,
+        PoseLandmarkType.rightWrist,
+      ]
+    ];
+    final rightSideStrict = [
+      PoseLandmarkType.rightKnee,
+      PoseLandmarkType.rightAnkle,
+    ];
+
+    bool leftSideVisible = true;
+    for (final joint in leftSideStandard) {
+      if (!isJointVisible(pose.landmarks[joint], standardConfidence)) {
+        leftSideVisible = false;
+        break;
+      }
+    }
+    if (leftSideVisible) {
+      for (final joint in leftSideStrict) {
+        if (!isJointVisible(pose.landmarks[joint], strictConfidence)) {
+          leftSideVisible = false;
+          break;
+        }
+      }
+    }
+
+    bool rightSideVisible = true;
+    for (final joint in rightSideStandard) {
+      if (!isJointVisible(pose.landmarks[joint], standardConfidence)) {
+        rightSideVisible = false;
+        break;
+      }
+    }
+    if (rightSideVisible) {
+      for (final joint in rightSideStrict) {
+        if (!isJointVisible(pose.landmarks[joint], strictConfidence)) {
+          rightSideVisible = false;
+          break;
+        }
+      }
+    }
+
+    return leftSideVisible || rightSideVisible;
   }
 
   @override
@@ -377,27 +503,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               children: [
                 // 1. Luồng video từ Camera
                 CameraStreamView(controller: _cameraController),
-
-                // 2. Viền phát sáng nhấp nháy cảnh báo đỏ nếu sai tư thế
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _isPoseDetected
-                              ? (_session.isPostureCorrect
-                                  ? AppTheme.neonGreen.withValues(alpha: 0.5)
-                                  : AppTheme.errorRed)
-                              : Colors.grey.withValues(alpha: 0.5),
-                          width: _session.isPostureCorrect ? 3.0 : 6.0,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-
 
                 // 4. Bảng HUD hiển thị thông số và cảnh báo
                 Positioned.fill(

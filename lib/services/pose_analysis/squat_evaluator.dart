@@ -6,16 +6,12 @@ import 'pose_analysis_result.dart';
 class SquatEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
-  bool _hasInvalidPostureInRep = false;
-  
-  // Tỉ lệ gối/hông khi đứng thẳng (mốc chuẩn)
-  double _baseRatio = 1.0; 
+  bool _isPostureCorrectInCurrentRep = true;
 
   @override
   void reset() {
     _motionState = 'UP';
-    _hasInvalidPostureInRep = false;
-    _baseRatio = 1.0;
+    _isPostureCorrectInCurrentRep = true;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -33,7 +29,6 @@ class SquatEvaluator extends BasePoseEvaluator {
 
     final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
     final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
-    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
     final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
@@ -63,7 +58,7 @@ class SquatEvaluator extends BasePoseEvaluator {
 
     // 2. Kiểm tra tư thế lưng (nghiêng về trước)
     if (_isLandmarkVisible(rightShoulder) && _isLandmarkVisible(rightHip)) {
-      double backLeanAngle = PoseMath.calculateAngleToVertical(rightShoulder!, rightHip!);
+      double backLeanAngle = PoseMath.calculateAngleToVertical(rightShoulder!, rightHip);
       if (backLeanAngle > 45) {
         isPostureCorrect = false;
         isBackCorrect = false;
@@ -71,14 +66,24 @@ class SquatEvaluator extends BasePoseEvaluator {
       }
     }
 
+    // Nếu phát hiện lỗi tư thế trong khi đang thực hiện squat (không đứng thẳng)
+    if (!isPostureCorrect && (kneeAngle < 155 || _motionState == 'DOWN')) {
+      _isPostureCorrectInCurrentRep = false;
+    }
+
     // 3. Logic squat và phát hiện khép gối
-    if (kneeAngle < 120) {
+    if (kneeAngle < 100) {
       if (_motionState == 'UP') _motionState = 'DOWN';
       
     } else if (kneeAngle > 155) {
       if (_motionState == 'DOWN') {
         _motionState = 'UP';
-        shouldCountRep = true;
+        if (_isPostureCorrectInCurrentRep) {
+          shouldCountRep = true;
+        } else {
+          feedback = 'Lần tập không được tính do sai tư thế!';
+        }
+        _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
       }
     }
 

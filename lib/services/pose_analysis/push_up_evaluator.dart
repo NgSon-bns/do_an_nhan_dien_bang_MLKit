@@ -6,10 +6,12 @@ import 'pose_analysis_result.dart';
 class PushUpEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
+  bool _isPostureCorrectInCurrentRep = true;
 
   @override
   void reset() {
     _motionState = 'UP';
+    _isPostureCorrectInCurrentRep = true;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -59,6 +61,11 @@ class PushUpEvaluator extends BasePoseEvaluator {
         }
       }
 
+      // Nếu phát hiện lỗi tư thế trong khi đang chống đẩy (không ở trạng thái đẩy thẳng tay)
+      if (!isPostureCorrect && (elbowAngle < 155 || _motionState == 'DOWN')) {
+        _isPostureCorrectInCurrentRep = false;
+      }
+
       // B. Đếm số lần dựa trên góc khuỷu tay
       if (elbowAngle < 90) {
         if (_motionState == 'UP') {
@@ -67,7 +74,12 @@ class PushUpEvaluator extends BasePoseEvaluator {
       } else if (elbowAngle > 155) {
         if (_motionState == 'DOWN') {
           _motionState = 'UP'; // Đã đẩy thẳng lên
-          shouldCountRep = true;
+          if (_isPostureCorrectInCurrentRep) {
+            shouldCountRep = true;
+          } else {
+            feedback = 'Lần tập không được tính do sai tư thế!';
+          }
+          _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
         }
       }
 
