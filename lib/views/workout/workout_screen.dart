@@ -17,11 +17,15 @@ import 'widgets/workout_hud_panel.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final ExerciseDetail exercise;
+  final int targetCount;
+  final bool noSplit;
   final List<CameraDescription> cameras;
 
   const WorkoutScreen({
     super.key,
     required this.exercise,
+    required this.targetCount,
+    required this.noSplit,
     required this.cameras,
   });
 
@@ -32,7 +36,7 @@ class WorkoutScreen extends StatefulWidget {
 class _WorkoutScreenState extends State<WorkoutScreen> {
   late CameraController _cameraController;
   late PoseDetectorService _poseDetectorService;
-  
+
   int _currentCameraIndex = 0;
   bool _isCameraInitialized = false;
   bool _isProcessing = false;
@@ -40,6 +44,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   // Đối tượng lưu trữ trạng thái buổi tập
   final WorkoutSession _session = WorkoutSession();
+  late final List<int> _setPlan;
+  int _currentSetIndex = 0;
+  int _currentSetCount = 0;
   Timer? _workoutTimer;
 
   // Dữ liệu khung xương
@@ -56,6 +63,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _poseDetectorService = PoseDetectorService();
     _poseDetectorService.initialize();
     _evaluator = EvaluatorFactory.create(widget.exercise.type);
+    _setPlan = widget.noSplit
+        ? [widget.targetCount]
+        : ExerciseDetail.computeSetPlan(widget.targetCount);
 
     // Thường ưu tiên camera trước (Selfie) cho tập luyện nếu có
     _findSelfieCamera();
@@ -88,7 +98,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     );
 
     try {
-      
       await _cameraController.initialize();
       if (!mounted) return;
 
@@ -114,14 +123,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       if (!mounted) return;
       setState(() {
         _session.elapsedSeconds++;
-        
+
         // Dành riêng cho Plank: Chỉ tích lũy giây tập khi đúng tư thế
         if (widget.exercise.type == ExerciseType.plank) {
           if (_isPoseDetected && _session.isPostureCorrect) {
             _session.activeHoldSeconds++;
           }
         }
-        
+
+        if (_session.isResting) {
+          _session.restSecondsLeft = (_session.restSecondsLeft - 1).clamp(
+            0,
+            30,
+          );
+          _session.feedbackMessage =
+              'Đang nghỉ ${_session.restSecondsLeft}s. Chuẩn bị set tiếp theo.';
+
+          if (_session.restSecondsLeft == 0) {
+            _session.isResting = false;
+            _session.announcementMessage =
+                'Kết thúc nghỉ. Bắt đầu set tiếp theo.';
+            _session.feedbackMessage = 'Bắt đầu set tiếp theo!';
+          }
+        }
+
         // Cập nhật calo dựa trên chỉ số bài tập
         _session.updateCalories(
           widget.exercise.caloriesPerMin,
@@ -134,7 +159,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   /// Đảo camera trước/sau
   Future<void> _toggleCamera() async {
     if (widget.cameras.length < 2) return;
-     setState(() {
+    setState(() {
       _isCameraInitialized = false;
     });
     // Đóng camera hiện tại
@@ -150,6 +175,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _evaluator.reset();
     setState(() {
       _session.reset();
+      _currentSetIndex = 0;
+      _currentSetCount = 0;
       _poses.clear();
       _isPoseDetected = false;
       _wasPostureCorrectLastFrame = true;
@@ -158,8 +185,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   /// Phân tích hình ảnh camera bằng AI và chạy thuật toán nhận diện
   Future<void> _processImage(CameraImage image) async {
-    final poses = await _poseDetectorService.processCameraImage(image, _cameraController);
-    
+    final poses = await _poseDetectorService.processCameraImage(
+      image,
+      _cameraController,
+    );
+
     if (!mounted) {
       _isProcessing = false;
       return;
@@ -177,12 +207,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     if (poses.isNotEmpty) {
       if (hasFullBody) {
-        _analyzePose(poses.first);
+        if (_session.isResting) {
+          setState(() {
+            _session.feedbackMessage =
+                'Đang nghỉ ${_session.restSecondsLeft}s. Chuẩn bị cho set tiếp theo.';
+          });
+        } else {
+          _analyzePose(poses.first);
+        }
       } else {
-        _evaluator.reset(); // Reset trạng thái chuyển động khi mất dấu toàn thân
+        _evaluator
+            .reset(); // Reset trạng thái chuyển động khi mất dấu toàn thân
         setState(() {
           _session.isPostureCorrect = true; // Trạng thái chờ/bình thường
-          _session.feedbackMessage = 'Hiện chưa xác định được người trong khung hình. Vui lòng lùi lại.';
+          _session.feedbackMessage =
+              'Hiện chưa xác định được người trong khung hình.';
         });
       }
     } else {
@@ -190,7 +229,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       // Khi không nhận diện được người, đặt lại các phản hồi cơ bản
       setState(() {
         _session.isPostureCorrect = true;
-        _session.feedbackMessage = 'Hiện chưa xác định được người trong khung hình. Vui lòng lùi lại.';
+        _session.feedbackMessage =
+            'Hiện chưa xác định được người trong khung hình.';
       });
     }
 
@@ -208,12 +248,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     if (result.shouldCountRep) {
       _session.counter++;
+      _currentSetCount++;
+      final currentSetTarget = _setPlan[_currentSetIndex];
+      if (_currentSetCount >= currentSetTarget) {
+        if (_currentSetIndex < _setPlan.length - 1) {
+          _currentSetIndex++;
+          _currentSetCount = 0;
+          _session.isResting = true;
+          _session.restSecondsLeft = 30;
+          _session.announcementMessage =
+              'Nghỉ 30 giây. Chuẩn bị cho set tiếp theo.';
+          _session.feedbackMessage =
+              'Đang nghỉ 30s. Set tiếp theo sẽ bắt đầu sau.';
+        } else {
+          _session.feedbackMessage =
+              'Hoàn thành bài tập! Chúc mừng bạn đã hoàn tất.';
+          _session.announcementMessage =
+              'Bạn đã hoàn thành bài tập. Nghỉ ngơi và tận hưởng thành quả!';
+        }
+      }
     }
 
     // Cập nhật trạng thái buổi tập
     setState(() {
       _session.isPostureCorrect = result.isPostureCorrect;
-      _session.feedbackMessage = result.feedbackMessage;
+      if (!_session.isResting) {
+        _session.feedbackMessage = result.feedbackMessage;
+      }
     });
 
     _wasPostureCorrectLastFrame = result.isPostureCorrect;
@@ -273,7 +334,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
         PoseLandmarkType.leftElbow,
         PoseLandmarkType.leftWrist,
-      ]
+      ],
     ];
     final leftSideStrict = [
       PoseLandmarkType.leftKnee,
@@ -286,7 +347,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
         PoseLandmarkType.rightElbow,
         PoseLandmarkType.rightWrist,
-      ]
+      ],
     ];
     final rightSideStrict = [
       PoseLandmarkType.rightKnee,
@@ -345,7 +406,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
   }
 
-  Widget _buildDialogStatItem(IconData icon, String label, String value, Color color) {
+  Widget _buildDialogStatItem(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -353,7 +419,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         const SizedBox(height: 6),
         Text(
           value,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
@@ -370,7 +440,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     final isOffline = !_isSupabaseInitialized;
     final isDuration = widget.exercise.isDurationBased;
-    final scoreValue = isDuration ? _session.activeHoldSeconds : _session.counter;
+    final scoreValue = isDuration
+        ? _session.activeHoldSeconds
+        : _session.counter;
     final scoreUnit = isDuration ? 'giây' : 'lần';
 
     bool? result = await showDialog<bool>(
@@ -395,7 +467,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           children: [
             const Divider(color: Colors.white12),
             const SizedBox(height: 16),
-            
+
             Text(
               '$scoreValue $scoreUnit',
               style: const TextStyle(
@@ -409,9 +481,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildDialogStatItem(Icons.local_fire_department, 'Calo', '${_session.caloriesBurned.toStringAsFixed(1)} kcal', Colors.orange),
-                _buildDialogStatItem(Icons.access_time, 'Thời gian', '${_session.elapsedSeconds}s', AppTheme.neonBlue),
-                _buildDialogStatItem(Icons.warning_amber_rounded, 'Lỗi', '${_session.incorrectPostureCount}', AppTheme.errorRed),
+                _buildDialogStatItem(
+                  Icons.local_fire_department,
+                  'Calo',
+                  '${_session.caloriesBurned.toStringAsFixed(1)} kcal',
+                  Colors.orange,
+                ),
+                _buildDialogStatItem(
+                  Icons.access_time,
+                  'Thời gian',
+                  '${_session.elapsedSeconds}s',
+                  AppTheme.neonBlue,
+                ),
+                _buildDialogStatItem(
+                  Icons.warning_amber_rounded,
+                  'Lỗi',
+                  '${_session.incorrectPostureCount}',
+                  AppTheme.errorRed,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -422,7 +509,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   ? 'Ứng dụng chạy ở chế độ Offline. Kết quả sẽ không được lưu lên Cloud.'
                   : 'Kết quả sẽ được đồng bộ trực tuyến lên tài khoản của bạn.',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppTheme.textSecondary,
+              ),
             ),
           ],
         ),
@@ -430,7 +520,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false), // Thoát không lưu
-            child: const Text('Thoát', style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Thoát',
+              style: TextStyle(
+                color: AppTheme.errorRed,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           TextButton(
             onPressed: () {
@@ -444,9 +540,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               onPressed: () => Navigator.pop(context, true), // Lưu & Thoát
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.neonGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              child: const Text('Lưu & Thoát', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Lưu & Thoát',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
         ],
       ),
@@ -462,7 +566,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator(color: AppTheme.neonGreen)),
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(color: AppTheme.neonGreen),
+        ),
       );
 
       try {
@@ -496,31 +602,38 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         }
       },
       child: Scaffold(
-      body: !_isCameraInitialized
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.neonGreen))
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                // 1. Luồng video từ Camera
-                CameraStreamView(controller: _cameraController),
+        body: !_isCameraInitialized
+            ? const Center(
+                child: CircularProgressIndicator(color: AppTheme.neonGreen),
+              )
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 1. Luồng video từ Camera
+                  CameraStreamView(controller: _cameraController),
 
-                // 4. Bảng HUD hiển thị thông số và cảnh báo
-                Positioned.fill(
-                  child: WorkoutHudPanel(
-                    exercise: widget.exercise,
-                    session: _session,
-                    onBackPressed: () async {
-                      final shouldPop = await _onBackPressed();
-                      if (shouldPop && context.mounted) {
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    onResetPressed: _resetWorkout,
-                    onToggleCameraPressed: _toggleCamera,
+                  // 4. Bảng HUD hiển thị thông số và cảnh báo
+                  Positioned.fill(
+                    child: WorkoutHudPanel(
+                      exercise: widget.exercise,
+                      targetCount: widget.targetCount,
+                      noSplit: widget.noSplit,
+                      session: _session,
+                      feedbackMessage: _session.feedbackMessage,
+                      isPostureCorrect: _session.isPostureCorrect,
+                      announcementMessage: _session.announcementMessage,
+                      onBackPressed: () async {
+                        final shouldPop = await _onBackPressed();
+                        if (shouldPop && context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      onResetPressed: _resetWorkout,
+                      onToggleCameraPressed: _toggleCamera,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
       ),
     );
   }

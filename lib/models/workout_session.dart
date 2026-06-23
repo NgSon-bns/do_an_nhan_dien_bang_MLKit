@@ -3,9 +3,12 @@ class WorkoutSession {
   int elapsedSeconds;
   int incorrectPostureCount;
   bool isPostureCorrect;
+  bool isResting;
+  int restSecondsLeft;
   String feedbackMessage;
+  String announcementMessage;
   double caloriesBurned;
-  
+
   // Dành riêng cho Plank: thời gian giữ plank chuẩn
   int activeHoldSeconds;
 
@@ -14,7 +17,10 @@ class WorkoutSession {
     this.elapsedSeconds = 0,
     this.incorrectPostureCount = 0,
     this.isPostureCorrect = true,
+    this.isResting = false,
+    this.restSecondsLeft = 0,
     this.feedbackMessage = 'Sẵn sàng! Hãy vào đúng tư thế.',
+    this.announcementMessage = '',
     this.caloriesBurned = 0.0,
     this.activeHoldSeconds = 0,
   });
@@ -24,7 +30,10 @@ class WorkoutSession {
     elapsedSeconds = 0;
     incorrectPostureCount = 0;
     isPostureCorrect = true;
+    isResting = false;
+    restSecondsLeft = 0;
     feedbackMessage = 'Sẵn sàng! Hãy vào đúng tư thế.';
+    announcementMessage = '';
     caloriesBurned = 0.0;
     activeHoldSeconds = 0;
   }

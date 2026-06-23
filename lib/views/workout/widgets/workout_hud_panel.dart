@@ -6,7 +6,12 @@ import '../../../models/workout_session.dart';
 
 class WorkoutHudPanel extends StatefulWidget {
   final ExerciseDetail exercise;
+  final int targetCount;
+  final bool noSplit;
   final WorkoutSession session;
+  final String feedbackMessage;
+  final bool isPostureCorrect;
+  final String announcementMessage;
   final VoidCallback onBackPressed;
   final VoidCallback onResetPressed;
   final VoidCallback onToggleCameraPressed;
@@ -14,7 +19,12 @@ class WorkoutHudPanel extends StatefulWidget {
   const WorkoutHudPanel({
     super.key,
     required this.exercise,
+    required this.targetCount,
+    required this.noSplit,
     required this.session,
+    required this.feedbackMessage,
+    required this.isPostureCorrect,
+    required this.announcementMessage,
     required this.onBackPressed,
     required this.onResetPressed,
     required this.onToggleCameraPressed,
@@ -28,7 +38,10 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     with SingleTickerProviderStateMixin {
   late AnimationController _shakeController;
   late FlutterTts _tts;
-  bool _isSpeakingError = false;
+  bool _isSpeaking = false;
+  String _lastSpokenMessage = '';
+  String? _queuedMessage;
+  bool _lastPostureCorrect = true;
 
   @override
   void initState() {
@@ -41,8 +54,13 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     _tts.setVolume(1.0);
 
     // CỐT LÕI: Đăng ký sự kiện khi TTS đọc xong câu
-    _tts.setCompletionHandler(() {
-      _isSpeakingError = false;
+    _tts.setCompletionHandler(() async {
+      _isSpeaking = false;
+      if (_queuedMessage != null && _queuedMessage!.isNotEmpty) {
+        final message = _queuedMessage;
+        _queuedMessage = null;
+        await _playMessage(message!);
+      }
     });
 
     _shakeController = AnimationController(
@@ -51,26 +69,55 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     );
   }
 
-  Future<void> _speakError(String message) async {
-    // Nếu đang nói hoặc message trống, thoát ngay
-    if (_isSpeakingError || message.isEmpty) return;
+  Future<void> _playMessage(String message) async {
+    if (message.isEmpty) return;
 
-    _isSpeakingError = true; // Khóa lại
+    _isSpeaking = true;
+    _lastSpokenMessage = message;
+    await _tts.speak(message);
+  }
 
-    await _tts.stop(); // Dừng âm thanh cũ
-    await _tts.speak(message); // Phát âm thanh mới
-    // KHÔNG đặt _isSpeakingError = false ở đây nữa
+  Future<void> _speak(String message, {bool isErrorFeedback = false}) async {
+    if (message.isEmpty) return;
+
+    // Error feedback phát liên tục, announcements chỉ phát 1 lần
+    if (!isErrorFeedback && _lastSpokenMessage == message) return;
+
+    if (_isSpeaking) {
+      _queuedMessage = message;
+      return;
+    }
+
+    await _playMessage(message);
   }
 
   @override
   void didUpdateWidget(covariant WorkoutHudPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Chỉ kích hoạt khi trạng thái thay đổi từ ĐÚNG -> SAI
-    if (!widget.session.isPostureCorrect) {
-      _shakeController.forward(from: 0.0);
-      _speakError(widget.session.feedbackMessage);
+    final feedbackUpdated = oldWidget.feedbackMessage != widget.feedbackMessage;
+
+    // Error feedback: phát liên tục khi sai, ngừng khi đúng
+    if (!widget.isPostureCorrect) {
+      if (widget.feedbackMessage.isNotEmpty) {
+        _shakeController.forward(from: 0.0);
+        _speak(widget.feedbackMessage, isErrorFeedback: true);
+      }
+    } else if (widget.feedbackMessage.isNotEmpty && feedbackUpdated) {
+      // Detection warning
+      if (widget.feedbackMessage.contains('Hiện chưa xác định')) {
+        _speak(widget.feedbackMessage, isErrorFeedback: true);
+      }
     }
+
+    if (widget.announcementMessage.isNotEmpty &&
+        oldWidget.announcementMessage != widget.announcementMessage) {
+      _speak(widget.announcementMessage);
+    }
+
+    
+
+    _lastPostureCorrect = widget.isPostureCorrect;
   }
 
   @override
@@ -173,8 +220,13 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                       : '${widget.session.counter}',
                   isDuration ? 'giây' : 'lần',
                 ),
-                Container(height: 50, width: 1, color: Colors.white12),
-                _buildInfoColumn(),
+                if (!isDuration) ...[
+                  Container(height: 50, width: 1, color: Colors.white12),
+                  Expanded(child: _buildTargetInfo(widget.targetCount)),
+                ] else ...[
+                  Container(height: 50, width: 1, color: Colors.white12),
+                  _buildInfoColumn(),
+                ],
               ],
             ),
           ),
@@ -275,4 +327,30 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
       ),
     ],
   );
+
+  Widget _buildTargetInfo(int targetCount) {
+    final plan = widget.noSplit
+        ? [targetCount]
+        : ExerciseDetail.computeSetPlan(targetCount);
+    final planText = widget.noSplit
+        ? 'Không chia rep — 1 set ($targetCount)'
+        : plan.isNotEmpty
+        ? '${plan.length} set (${plan.map((value) => '$value').join(' + ')})'
+        : 'Không có kế hoạch set';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Mục tiêu: $targetCount lần',
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Kế hoạch set: $planText',
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10),
+        ),
+      ],
+    );
+  }
 }

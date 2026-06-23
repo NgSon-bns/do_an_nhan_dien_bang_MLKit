@@ -13,6 +13,8 @@ class ExerciseDetail {
   final String difficulty;
   final double caloriesPerMin;
 
+  static const List<int> targetOptions = [25, 20, 75, 100];
+
   const ExerciseDetail({
     required this.type,
     required this.name,
@@ -24,6 +26,24 @@ class ExerciseDetail {
     required this.difficulty,
     required this.caloriesPerMin,
   });
+
+  static List<int> computeSetPlan(int totalReps) {
+    if (totalReps <= 0) return [];
+
+    final double quarter = totalReps / 4.0;
+    int sets = quarter >= 8 ? 4 : totalReps ~/ 8;
+    if (sets < 1) {
+      sets = 1;
+    }
+
+    final int baseCount = totalReps ~/ sets;
+    final int remainder = totalReps % sets;
+
+    return List<int>.generate(
+      sets,
+      (index) => baseCount + (index < remainder ? 1 : 0),
+    );
+  }
 
   static List<ExerciseDetail> get defaultExercises {
     return const [
@@ -40,7 +60,7 @@ class ExerciseDetail {
           'Đặt hai tay rộng hơn vai một chút, thân người thẳng từ đầu đến gót chân.',
           'Hạ người xuống cho đến khi góc khuỷu tay nhỏ hơn 90 độ.',
           'Đẩy người thẳng lên vị trí ban đầu (khuỷu tay duỗi > 155 độ).',
-          'Lưu ý: Giữ lưng thẳng, không để võng hoặc nhô hông cao quá.'
+          'Lưu ý: Giữ lưng thẳng, không để võng hoặc nhô hông cao quá.',
         ],
       ),
       ExerciseDetail(
@@ -56,7 +76,7 @@ class ExerciseDetail {
           'Đứng thẳng, hai chân rộng bằng vai, mũi chân hướng nhẹ ra ngoài.',
           'Hạ hông xuống như đang ngồi vào ghế, gập đầu gối tối thiểu dưới 100 độ.',
           'Giữ ngực cao, không cúi gập lưng quá nhiều (> 45 độ so với phương thẳng đứng).',
-          'Đẩy gót chân lên để đứng thẳng dậy vị trí cũ.'
+          'Đẩy gót chân lên để đứng thẳng dậy vị trí cũ.',
         ],
       ),
       ExerciseDetail(
@@ -72,7 +92,7 @@ class ExerciseDetail {
           'Đặt cẳng tay lên sàn, khuỷu tay vuông góc ngay dưới vai.',
           'Thân người song song mặt sàn, tạo thành đường thẳng từ vai đến gót chân.',
           'Đồng hồ đếm thời gian chỉ tích lũy khi giữ tư thế lưng và hông thẳng.',
-          'Cảnh báo sẽ nhấp nháy nếu hông của bạn quá cao hoặc võng quá thấp.'
+          'Cảnh báo sẽ nhấp nháy nếu hông của bạn quá cao hoặc võng quá thấp.',
         ],
       ),
       ExerciseDetail(
@@ -88,7 +108,7 @@ class ExerciseDetail {
           'Bắt đầu ở tư thế đứng khép chân, tay đặt hai bên đùi.',
           'Nhảy dạng rộng chân ra (gấp đôi chiều rộng vai) đồng thời giơ hai tay lên cao qua đầu.',
           'Nhảy ngược lại về tư thế khép chân, tay hạ xuống đùi để hoàn thành 1 lần.',
-          'Thực hiện chuyển động nhịp nhàng và liên tục.'
+          'Thực hiện chuyển động nhịp nhàng và liên tục.',
         ],
       ),
     ];

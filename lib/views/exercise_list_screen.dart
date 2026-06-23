@@ -21,6 +21,8 @@ class ExerciseListScreen extends StatefulWidget {
 class _ExerciseListScreenState extends State<ExerciseListScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
+  final Map<ExerciseType, int> _selectedTargets = {};
+  final Map<ExerciseType, bool> _noSplitTargets = {};
 
   // Các chỉ số thống kê thực tế
   double _totalCalories = 0.0;
@@ -104,7 +106,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Đồng ý', style: TextStyle(color: AppTheme.neonGreen)),
+              child: const Text(
+                'Đồng ý',
+                style: TextStyle(color: AppTheme.neonGreen),
+              ),
             ),
           ],
         ),
@@ -136,7 +141,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
             // 1. THANH TIÊU ĐỀ CHÀO MỪNG (HEADER BANNER)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0,
+                  vertical: 24.0,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -166,7 +174,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             ),
                           ],
                         ),
-                        
+
                         // Nút Avatar mở Trang cá nhân
                         GestureDetector(
                           onTap: _handleProfileClick,
@@ -199,7 +207,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               child: SizedBox(
                                 height: 24,
                                 width: 24,
-                                child: CircularProgressIndicator(color: AppTheme.neonGreen, strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  color: AppTheme.neonGreen,
+                                  strokeWidth: 2,
+                                ),
                               ),
                             )
                           : Row(
@@ -211,14 +222,22 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   '${_totalCalories.toStringAsFixed(0)} kcal',
                                   Colors.orange,
                                 ),
-                                Container(height: 36, width: 1, color: Colors.white12),
+                                Container(
+                                  height: 36,
+                                  width: 1,
+                                  color: Colors.white12,
+                                ),
                                 _buildQuickStatItem(
                                   Icons.timer,
                                   'Thời gian',
                                   '$_totalMinutes phút',
                                   AppTheme.neonBlue,
                                 ),
-                                Container(height: 36, width: 1, color: Colors.white12),
+                                Container(
+                                  height: 36,
+                                  width: 1,
+                                  color: Colors.white12,
+                                ),
                                 _buildQuickStatItem(
                                   Icons.emoji_events,
                                   'Bài tập',
@@ -229,7 +248,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             ),
                     ),
                     const SizedBox(height: 28),
-                    
+
                     const Text(
                       'BÀI TẬP VỚI AI ĐỒNG HÀNH',
                       style: TextStyle(
@@ -248,16 +267,13 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 20.0),
               sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final exercise = exercises[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
-                      child: _buildExerciseCard(context, exercise),
-                    );
-                  },
-                  childCount: exercises.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final exercise = exercises[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: _buildExerciseCard(context, exercise),
+                  );
+                }, childCount: exercises.length),
               ),
             ),
           ],
@@ -266,7 +282,12 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     );
   }
 
-  Widget _buildQuickStatItem(IconData icon, String label, String value, Color color) {
+  Widget _buildQuickStatItem(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icon, color: color, size: 22),
@@ -282,10 +303,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: AppTheme.textSecondary,
-          ),
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
         ),
       ],
     );
@@ -311,11 +329,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                 color: AppTheme.neonGreen.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                exercise.icon,
-                color: AppTheme.neonGreen,
-                size: 24,
-              ),
+              child: Icon(exercise.icon, color: AppTheme.neonGreen, size: 24),
             ),
             title: Text(
               exercise.name,
@@ -367,37 +381,159 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ...exercise.instructions.map((step) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('• ', style: TextStyle(color: AppTheme.neonGreen, fontSize: 16)),
-                              Expanded(
-                                child: Text(
-                                  step,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.textSecondary,
-                                    height: 1.4,
-                                  ),
+                    ...exercise.instructions.map(
+                      (step) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '• ',
+                              style: TextStyle(
+                                color: AppTheme.neonGreen,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                step,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.textSecondary,
+                                  height: 1.4,
                                 ),
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (!exercise.isDurationBased) ...[
+                      const Text(
+                        'Chọn số lượng:',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.neonGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ExerciseDetail.targetOptions.map((option) {
+                          final isSelected =
+                              (_selectedTargets[exercise.type] ??
+                                  exercise.targetValue) ==
+                              option;
+                          return ChoiceChip(
+                            label: Text('$option'),
+                            selected: isSelected,
+                            selectedColor: AppTheme.neonGreen,
+                            backgroundColor: AppTheme.cardBackground,
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            onSelected: (_) {
+                              setState(() {
+                                _selectedTargets[exercise.type] = option;
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                      Builder(
+                        builder: (context) {
+                          final selectedTarget =
+                              _selectedTargets[exercise.type] ??
+                              exercise.targetValue;
+                          final noSplit =
+                              _noSplitTargets[exercise.type] ?? false;
+                          final plan = noSplit
+                              ? [selectedTarget]
+                              : ExerciseDetail.computeSetPlan(selectedTarget);
+                          final planText = noSplit
+                              ? 'Không chia rep — 1 set ($selectedTarget)'
+                              : plan.isNotEmpty
+                              ? '${plan.length} set (${plan.map((value) => '$value').join(' + ')})'
+                              : '';
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Tổng mục tiêu: $selectedTarget lần',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Kế hoạch set: $planText',
+                                      style: const TextStyle(
+                                        color: AppTheme.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (!exercise.isDurationBased) ...[
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Switch(
+                                      value: noSplit,
+                                      activeThumbColor: AppTheme.neonGreen,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _noSplitTargets[exercise.type] =
+                                              value;
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Không chia rep trước khi bắt đầu',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
-                          ),
-                        )),
-                    const SizedBox(height: 20),
-                    
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
                     // Nút Bắt đầu
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: () {
+                          final selectedTarget =
+                              _selectedTargets[exercise.type] ??
+                              exercise.targetValue;
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => WorkoutScreen(
                                 exercise: exercise,
+                                targetCount: selectedTarget,
+                                noSplit:
+                                    _noSplitTargets[exercise.type] ?? false,
                                 cameras: widget.cameras,
                               ),
                             ),
@@ -406,7 +542,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             _loadDashboardData();
                           });
                         },
-                        icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 24),
+                        icon: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.black,
+                          size: 24,
+                        ),
                         label: const Text(
                           'BẮT ĐẦU LUYỆN TẬP',
                           style: TextStyle(
@@ -449,7 +589,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
           const SizedBox(width: 6),
           Text(
             text,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
         ],
       ),
