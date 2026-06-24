@@ -31,7 +31,7 @@ class SquatEvaluator extends BasePoseEvaluator {
 
   @override
   PoseAnalysisResult evaluate(Pose pose) {
-    String feedback = 'Đang làm tốt lắm!';
+    String feedback = '';
     bool isPostureCorrect = true;
     bool shouldCountRep = false;
 
@@ -100,12 +100,14 @@ class SquatEvaluator extends BasePoseEvaluator {
       }
     }
 
-    // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
+    // Nếu tập đúng
     if (isPostureCorrect) {
       if (shouldCountRep) {
-        feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
+        feedback = "Tốt lắm!";
       } else if (_reps > 0) {
         feedback = "Bạn đang tập đúng!";
+      } else {
+        feedback = "";
       }
     }
 

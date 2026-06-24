@@ -4,6 +4,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../models/exercise.dart';
 import '../../../models/workout_session.dart';
 
+enum HudStatus { correct, warning, error }
+
 class WorkoutHudPanel extends StatefulWidget {
   final ExerciseDetail exercise;
   final int targetCount;
@@ -41,7 +43,6 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
   bool _isSpeaking = false;
   String _lastSpokenMessage = '';
   String? _queuedMessage;
-  bool _lastPostureCorrect = true;
 
   @override
   void initState() {
@@ -115,9 +116,6 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
       _speak(widget.announcementMessage);
     }
 
-    
-
-    _lastPostureCorrect = widget.isPostureCorrect;
   }
 
   @override
@@ -147,9 +145,52 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     return '$minutes:$seconds';
   }
 
+  HudStatus _getHudStatus() {
+    final msg = widget.session.feedbackMessage;
+    if (msg.contains('chưa xác định') ||
+        msg.contains('thấy rõ') ||
+        msg.contains('nhìn thấy') ||
+        msg.contains('đứng lùi') ||
+        msg.contains('nghiêng người') ||
+        msg.contains('Chưa phát hiện') ||
+        msg.contains('Không tìm thấy') ||
+        msg.contains('Đang nghỉ') ||
+        msg.contains('Bắt đầu set') ||
+        msg.contains('Chuẩn bị')) {
+      return HudStatus.warning;
+    }
+    if (widget.session.isPostureCorrect) {
+      return HudStatus.correct;
+    }
+    return HudStatus.error;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDuration = widget.exercise.isDurationBased;
+    
+    final status = _getHudStatus();
+    final Color cardColor;
+    final IconData cardIcon;
+    final Color textColor;
+
+    switch (status) {
+      case HudStatus.correct:
+        cardColor = AppTheme.neonGreen.withValues(alpha: 0.85);
+        cardIcon = Icons.check_circle;
+        textColor = Colors.black87;
+        break;
+      case HudStatus.warning:
+        cardColor = Colors.amber.withValues(alpha: 0.85);
+        cardIcon = Icons.warning_amber_rounded;
+        textColor = Colors.black87;
+        break;
+      case HudStatus.error:
+        cardColor = AppTheme.errorRed.withValues(alpha: 0.85);
+        cardIcon = Icons.error_outline;
+        textColor = Colors.white;
+        break;
+    }
 
     return Stack(
       children: [
@@ -233,12 +274,13 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
         ),
 
         // 3. KHUNG CẢNH BÁO (Tối ưu với AnimatedBuilder và AnimatedContainer)
-        Positioned(
-          bottom: 40,
-          left: 20,
-          right: 20,
-          child: AnimatedBuilder(
-            animation: _shakeController,
+        if (widget.session.feedbackMessage.isNotEmpty)
+          Positioned(
+            bottom: 40,
+            left: 20,
+            right: 20,
+            child: AnimatedBuilder(
+              animation: _shakeController,
             builder: (context, child) => Transform.translate(
               offset: _getShakeOffset(_shakeController.value),
               child: child,
@@ -247,25 +289,21 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
               duration: const Duration(milliseconds: 300),
               padding: const EdgeInsets.all(16),
               decoration: AppTheme.glassDecoration(
-                color: widget.session.isPostureCorrect
-                    ? Colors.black.withValues(alpha: 0.8)
-                    : AppTheme.errorRed.withValues(alpha: 0.85),
+                color: cardColor,
                 borderRadius: 20,
               ),
               child: Row(
                 children: [
                   Icon(
-                    widget.session.isPostureCorrect
-                        ? Icons.check_circle
-                        : Icons.warning_amber_rounded,
-                    color: Colors.white,
+                    cardIcon,
+                    color: textColor,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Text(
                       widget.session.feedbackMessage,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: textColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

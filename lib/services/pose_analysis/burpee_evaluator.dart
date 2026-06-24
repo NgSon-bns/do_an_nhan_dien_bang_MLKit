@@ -84,7 +84,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     }
 
     bool shouldCountRep = false;
-    String feedback = "Đang thực hiện...";
+    String feedback = "";
     bool isPostureCorrect = true;
 
     switch (_currentState) {
@@ -180,12 +180,14 @@ class BurpeeEvaluator extends BasePoseEvaluator {
       }
     }
 
-    // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
+    // Nếu tập đúng
     if (isPostureCorrect) {
       if (shouldCountRep) {
-        feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
+        feedback = "Tốt lắm!";
       } else if (_reps > 0) {
         feedback = "Bạn đang tập đúng!";
+      } else {
+        feedback = "";
       }
     }
 

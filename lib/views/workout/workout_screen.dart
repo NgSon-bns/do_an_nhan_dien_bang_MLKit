@@ -185,6 +185,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   /// Phân tích hình ảnh camera bằng AI và chạy thuật toán nhận diện
   Future<void> _processImage(CameraImage image) async {
+    if (_session.isResting) {
+      if (mounted) {
+        setState(() {
+          _poses.clear();
+          _isPoseDetected = false;
+        });
+      }
+      _isProcessing = false;
+      return;
+    }
+
     final poses = await _poseDetectorService.processCameraImage(
       image,
       _cameraController,

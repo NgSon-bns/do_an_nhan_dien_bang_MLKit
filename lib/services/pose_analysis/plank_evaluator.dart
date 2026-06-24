@@ -23,7 +23,7 @@ class PlankEvaluator extends BasePoseEvaluator {
   @override
   PoseAnalysisResult evaluate(Pose pose) {
     bool isPostureCorrect = true;
-    String feedback = 'Tư thế tuyệt vời! Hãy duy trì gồng bụng.';
+    String feedback = '';
     bool isBackCorrect = true;
     bool isLegsCorrect = true;
     bool isArmsCorrect = true;
@@ -97,7 +97,7 @@ class PlankEvaluator extends BasePoseEvaluator {
 
     // Nếu tập đúng: hiển thị câu khích lệ mặc định
     if (isPostureCorrect) {
-      feedback = "Tư thế tuyệt vời! Hãy duy trì gồng bụng.";
+      feedback = "Bạn đang tập đúng!";
     }
 
     return PoseAnalysisResult(

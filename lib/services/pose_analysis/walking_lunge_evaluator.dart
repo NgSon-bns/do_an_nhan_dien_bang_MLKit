@@ -67,7 +67,7 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
     double averageBackTilt = (leftBackTilt + rightBackTilt) / 2.0;
 
     bool isPostureCorrect = true;
-    String feedback = "Đang làm tốt lắm! Hãy tiếp tục.";
+    String feedback = "";
     bool shouldCountRep = false;
 
     // Kiểm tra độ thẳng của lưng (tránh khom lưng về phía trước quá 20 độ theo chuẩn y học thể thao)
@@ -112,12 +112,14 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
         break;
     }
 
-    // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
+    // Nếu tập đúng
     if (isPostureCorrect) {
       if (shouldCountRep) {
-        feedback = "Hoàn thành rep $_reps!";
+        feedback = "Tốt lắm!";
       } else if (_reps > 0) {
         feedback = "Bạn đang tập đúng!";
+      } else {
+        feedback = "";
       }
     }
 
