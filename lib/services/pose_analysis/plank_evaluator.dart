@@ -95,6 +95,11 @@ class PlankEvaluator extends BasePoseEvaluator {
           'Vui lòng nằm nghiêng để camera thấy rõ vai, khuỷu tay, hông và gót chân.';
     }
 
+    // Nếu tập đúng: hiển thị câu khích lệ mặc định
+    if (isPostureCorrect) {
+      feedback = "Tư thế tuyệt vời! Hãy duy trì gồng bụng.";
+    }
+
     return PoseAnalysisResult(
       isPostureCorrect: isPostureCorrect,
       feedbackMessage: feedback,

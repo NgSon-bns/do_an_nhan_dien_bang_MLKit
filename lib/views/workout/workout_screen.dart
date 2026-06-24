@@ -289,8 +289,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return landmark != null && landmark.likelihood >= threshold;
     }
 
-    // 1. Đối với Squat và Jumping Jack (bắt buộc trực diện, đủ 2 bên trái & phải)
-    if (type == ExerciseType.squat || type == ExerciseType.jumpingJack) {
+    // 1. Đối với Squat, Jumping Jack và Walking Lunge (bắt buộc trực diện, đủ 2 bên trái & phải)
+    if (type == ExerciseType.squat || type == ExerciseType.jumpingJack || type == ExerciseType.walkingLunge) {
       final standardJoints = [
         PoseLandmarkType.leftShoulder,
         PoseLandmarkType.rightShoulder,

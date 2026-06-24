@@ -8,6 +8,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
   bool _isRightSideVisible = true;
+  int _reps = 0;
 
   double _standingShoulderY = 0; // Mốc để so sánh độ sâu
   int _errorFrames = 0; // Bộ lọc nhiễu khung hình
@@ -20,6 +21,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
     _standingShoulderY = 0;
     _errorFrames = 0;
     isBackCorrect = true;
+    _reps = 0;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -144,11 +146,28 @@ class PushUpEvaluator extends BasePoseEvaluator {
         _motionState = 'UP';
         if (_isPostureCorrectInCurrentRep && isPushUpDeepEnough) {
           shouldCountRep = true;
+          _reps++;
           feedback = 'Tuyệt vời!';
+        } else {
+          isPostureCorrect = false;
+          if (!isPushUpDeepEnough) {
+            feedback = 'Hãy xuống sâu hơn nữa!';
+          } else {
+            feedback = 'Lần tập không được tính do sai tư thế!';
+          }
         }
         print(
           'up Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: $currentShoulderY, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $isPushUpDeepEnough,shouldCountRep: $shouldCountRep',
         );
+      }
+    }
+
+    // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
+    if (isPostureCorrect) {
+      if (shouldCountRep) {
+        feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
+      } else if (_reps > 0) {
+        feedback = "Bạn đang tập đúng!";
       }
     }
 

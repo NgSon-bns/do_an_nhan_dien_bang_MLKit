@@ -7,6 +7,7 @@ class SquatEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
+  int _reps = 0;
 
   // Biến lưu trữ mốc khi đứng thẳng
   double? _standingHipY;
@@ -21,6 +22,7 @@ class SquatEvaluator extends BasePoseEvaluator {
     _isPostureCorrectInCurrentRep = true;
     _standingHipY = null;
     _errorFrames = 0;
+    _reps = 0;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -88,11 +90,22 @@ class SquatEvaluator extends BasePoseEvaluator {
         _motionState = 'UP';
         if (_isPostureCorrectInCurrentRep) {
           shouldCountRep = true;
+          _reps++;
           feedback = 'Tuyệt vời!';
         } else {
+          isPostureCorrect = false;
           feedback = 'Lần tập không được tính do sai tư thế!';
         }
         _isPostureCorrectInCurrentRep = true;
+      }
+    }
+
+    // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
+    if (isPostureCorrect) {
+      if (shouldCountRep) {
+        feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
+      } else if (_reps > 0) {
+        feedback = "Bạn đang tập đúng!";
       }
     }
 

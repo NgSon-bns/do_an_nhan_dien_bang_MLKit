@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ExerciseType { pushUp, squat, plank, jumpingJack, burpee }
+enum ExerciseType { pushUp, squat, plank, jumpingJack, burpee, walkingLunge }
 
 class ExerciseDetail {
   final ExerciseType type;
@@ -127,6 +127,24 @@ class ExerciseDetail {
           'Nhảy hoặc bước chân ra phía sau để tạo tư thế plank, thân người thẳng.',
           'Nhảy hoặc bước chân quay lại phía trước, quay trở lại tư thế squat.',
           'Nhảy thẳng lên với tay giơ cao trên đầu để hoàn thành 1 lần.',
+        ],
+      ),
+      ExerciseDetail(
+        type: ExerciseType.walkingLunge,
+        name: 'Walking Lunge',
+        description:
+            'Bài tập bước gập gối di chuyển phát triển cơ đùi và cơ mông.',
+        icon: Icons.directions_walk,
+        isDurationBased: false,
+        targetValue: 20,
+        difficulty: 'Trung bình',
+        caloriesPerMin: 8.0,
+        instructions: [
+          'Đứng thẳng, hai chân rộng bằng hông, tay đặt hai bên sườn hoặc hông.',
+          'Bước một chân lớn về phía trước và hạ hông xuống cho đến khi đùi chân trước song song với sàn (góc gối trước ~ 90 độ).',
+          'Đầu gối chân sau cũng gập lại và hướng thẳng xuống sàn nhưng không chạm sàn (góc gối sau ~ 90 độ).',
+          'Giữ thân người thẳng đứng, không cúi nghiêng lưng ra trước.',
+          'Đẩy gót chân trước đứng dậy bước tiếp chân sau lên trước để bắt đầu rep mới.',
         ],
       ),
     ];

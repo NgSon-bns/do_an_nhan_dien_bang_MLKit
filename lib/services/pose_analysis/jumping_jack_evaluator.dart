@@ -7,11 +7,13 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
   String _motionState = 'NEUTRAL';
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
+  int _reps = 0;
 
   @override
   void reset() {
     _motionState = 'NEUTRAL';
     _isPostureCorrectInCurrentRep = true;
+    _reps = 0;
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
@@ -80,21 +82,25 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
           _motionState = 'NEUTRAL'; // Về lại vị trí chuẩn
           if (_isPostureCorrectInCurrentRep) {
             shouldCountRep = true;
+            _reps++;
           } else {
+            isPostureCorrect = false;
             feedback = 'Lần tập không được tính do sai tư thế!';
           }
           _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
         }
       }
 
+      // Nếu tập đúng: từ rep thứ 2 trở đi chỉ hiển thị trạng thái tập đúng, rep đầu tiên vẫn giữ hướng dẫn chi tiết
       if (isPostureCorrect) {
-        if (_motionState == 'ACTIVE') {
-          feedback = 'Tốt! Nhảy khép chân và hạ tay.';
-        } else {
-          feedback = 'Nhảy mở rộng chân và vung tay cao qua đầu.';
+        if (shouldCountRep) {
+          feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
+        } else if (_reps > 0) {
+          feedback = "Bạn đang tập đúng!";
         }
       }
     } else {
+      isPostureCorrect = false;
       feedback = 'Đứng lùi xa ra để camera thấy từ đầu đến chân.';
     }
 
