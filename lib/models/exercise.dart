@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ExerciseType { pushUp, squat, plank, jumpingJack }
+enum ExerciseType { pushUp, squat, plank, jumpingJack, burpee }
 
 class ExerciseDetail {
   final ExerciseType type;
@@ -109,6 +109,24 @@ class ExerciseDetail {
           'Nhảy dạng rộng chân ra (gấp đôi chiều rộng vai) đồng thời giơ hai tay lên cao qua đầu.',
           'Nhảy ngược lại về tư thế khép chân, tay hạ xuống đùi để hoàn thành 1 lần.',
           'Thực hiện chuyển động nhịp nhàng và liên tục.',
+        ],
+      ),
+      ExerciseDetail(
+        type: ExerciseType.burpee,
+        name: 'Burpee',
+        description:
+            'Bài tập toàn thân kết hợp cardio và sức mạnh, đốt cháy calo rất hiệu quả.',
+        icon: Icons.fitness_center,
+        isDurationBased: false,
+        targetValue: 15,
+        difficulty: 'Khó',
+        caloriesPerMin: 12.5,
+        instructions: [
+          'Đứng thẳng, hai chân rộng bằng vai.',
+          'Cúi xuống squats, đặt hai tay lên mặt sàn.',
+          'Nhảy hoặc bước chân ra phía sau để tạo tư thế plank, thân người thẳng.',
+          'Nhảy hoặc bước chân quay lại phía trước, quay trở lại tư thế squat.',
+          'Nhảy thẳng lên với tay giơ cao trên đầu để hoàn thành 1 lần.',
         ],
       ),
     ];

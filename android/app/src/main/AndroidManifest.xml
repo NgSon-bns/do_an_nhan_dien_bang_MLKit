@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
-        android:label="demo_hit_dat"
+        android:label="demo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

@@ -1,6 +1,6 @@
 {
-    "name": "demo_hit_dat",
-    "short_name": "demo_hit_dat",
+    "name": "demo",
+    "short_name": "demo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

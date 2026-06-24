@@ -1,4 +1,4 @@
-package com.example.demo_hit_dat
+package com.example.demo
 
 import io.flutter.embedding.android.FlutterActivity
 

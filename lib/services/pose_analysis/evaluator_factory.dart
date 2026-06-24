@@ -4,6 +4,7 @@ import 'push_up_evaluator.dart';
 import 'squat_evaluator.dart';
 import 'plank_evaluator.dart';
 import 'jumping_jack_evaluator.dart';
+import 'burpee_evaluator.dart';
 
 class EvaluatorFactory {
   /// Hàm Factory khởi tạo đối tượng phân tích phù hợp với từng bài tập
@@ -17,6 +18,8 @@ class EvaluatorFactory {
         return PlankEvaluator();
       case ExerciseType.jumpingJack:
         return JumpingJackEvaluator();
+      case ExerciseType.burpee:
+        return BurpeeEvaluator();
     }
   }
 }
