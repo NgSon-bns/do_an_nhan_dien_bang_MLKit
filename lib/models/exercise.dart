@@ -12,6 +12,12 @@ class ExerciseDetail {
   final int targetValue; // Số lần hoặc số giây mục tiêu
   final String difficulty;
   final double caloriesPerMin;
+  final String category;
+  final String focusArea;
+  final String equipment;
+  final bool isAiEnabled;
+  final int estimatedDurationSeconds;
+  final List<String> benefits;
 
   static const List<int> targetOptions = [25, 20, 75, 100];
 
@@ -25,7 +31,18 @@ class ExerciseDetail {
     required this.targetValue,
     required this.difficulty,
     required this.caloriesPerMin,
+    this.category = 'Strength',
+    this.focusArea = 'Toàn thân',
+    this.equipment = 'Không cần dụng cụ',
+    this.isAiEnabled = true,
+    this.estimatedDurationSeconds = 30,
+    this.benefits = const [],
   });
+
+  String get targetLabel =>
+      isDurationBased ? '$targetValue giây' : '$targetValue lần';
+
+  String get summary => '$name • $difficulty • $focusArea';
 
   static List<int> computeSetPlan(int totalReps) {
     if (totalReps <= 0) return [];
@@ -56,6 +73,12 @@ class ExerciseDetail {
         targetValue: 15,
         difficulty: 'Trung bình',
         caloriesPerMin: 8.5,
+        category: 'Strength',
+        focusArea: 'Ngực - Vai - Tay',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 45,
+        benefits: ['Tăng sức mạnh', 'Cải thiện tư thế', 'Tăng độ bền'],
         instructions: [
           'Đặt hai tay rộng hơn vai một chút, thân người thẳng từ đầu đến gót chân.',
           'Hạ người xuống cho đến khi góc khuỷu tay nhỏ hơn 90 độ.',
@@ -72,6 +95,12 @@ class ExerciseDetail {
         targetValue: 20,
         difficulty: 'Dễ',
         caloriesPerMin: 7.0,
+        category: 'Strength',
+        focusArea: 'Đùi - Mông',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 40,
+        benefits: ['Tăng sức mạnh chân', 'Cải thiện cân bằng', 'Bảo vệ khớp'],
         instructions: [
           'Đứng thẳng, hai chân rộng bằng vai, mũi chân hướng nhẹ ra ngoài.',
           'Hạ hông xuống như đang ngồi vào ghế, gập đầu gối tối thiểu dưới 100 độ.',
@@ -88,6 +117,12 @@ class ExerciseDetail {
         targetValue: 60,
         difficulty: 'Trung bình',
         caloriesPerMin: 5.0,
+        category: 'Core',
+        focusArea: 'Bụng - Lưng',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 60,
+        benefits: ['Tăng cốt lõi', 'Cải thiện ổn định', 'Giảm đau lưng'],
         instructions: [
           'Đặt cẳng tay lên sàn, khuỷu tay vuông góc ngay dưới vai.',
           'Thân người song song mặt sàn, tạo thành đường thẳng từ vai đến gót chân.',
@@ -104,6 +139,12 @@ class ExerciseDetail {
         targetValue: 25,
         difficulty: 'Dễ',
         caloriesPerMin: 10.0,
+        category: 'Cardio',
+        focusArea: 'Toàn thân',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 30,
+        benefits: ['Đốt calo', 'Tăng nhịp tim', 'Cải thiện sức bền'],
         instructions: [
           'Bắt đầu ở tư thế đứng khép chân, tay đặt hai bên đùi.',
           'Nhảy dạng rộng chân ra (gấp đôi chiều rộng vai) đồng thời giơ hai tay lên cao qua đầu.',
@@ -121,6 +162,12 @@ class ExerciseDetail {
         targetValue: 15,
         difficulty: 'Khó',
         caloriesPerMin: 12.5,
+        category: 'Cardio',
+        focusArea: 'Toàn thân',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 50,
+        benefits: ['Đốt calo nhanh', 'Tăng sức mạnh', 'Nâng sức bền'],
         instructions: [
           'Đứng thẳng, hai chân rộng bằng vai.',
           'Cúi xuống squats, đặt hai tay lên mặt sàn.',
@@ -139,6 +186,16 @@ class ExerciseDetail {
         targetValue: 20,
         difficulty: 'Trung bình',
         caloriesPerMin: 8.0,
+        category: 'Strength',
+        focusArea: 'Đùi - Mông - Cân bằng',
+        equipment: 'Không cần dụng cụ',
+        isAiEnabled: true,
+        estimatedDurationSeconds: 45,
+        benefits: [
+          'Tăng sức mạnh chân',
+          'Cải thiện cân bằng',
+          'Tăng độ linh hoạt',
+        ],
         instructions: [
           'Đứng thẳng, hai chân rộng bằng hông, tay đặt hai bên sườn hoặc hông.',
           'Bước một chân lớn về phía trước và hạ hông xuống cho đến khi đùi chân trước song song với sàn (góc gối trước ~ 90 độ).',

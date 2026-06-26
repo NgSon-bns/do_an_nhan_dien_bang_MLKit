@@ -93,45 +93,77 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         if (kneeAngle > 160 && hipAngle > 160) {
           _standingHipY = hip.y;
         }
-        // Chuyển sang squat khi gối và hông gập sâu sát đất (góc < 100 độ)
-        if (kneeAngle < 100 && hipAngle < 100) {
+        // Chuyển sang squat khi gối và hông gập sâu sát đất (góc < 100 độ) kneeAngle < 100 &&
+        if (hipAngle < 100) {
           _currentState = BurpeeState.squat;
           feedback = "Đã ngồi xổm, hãy bật chân ra sau thành Plank!";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else {
           feedback = "Hãy ngồi xổm sâu xuống sát mặt sàn (góc gối < 100°).";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         }
         break;
 
       case BurpeeState.squat:
         // Đã ngồi xổm, bật chân ra sau làm Plank thẳng người nằm ngang (gối/hông duỗi thẳng > 160 độ, thân nghiêng < 25 độ)
-        if (kneeAngle > 160 && hipAngle > 160 && bodyHorizontalAngle < 25) {
+        if (kneeAngle > 100 && hipAngle > 145 && bodyHorizontalAngle < 25) {
           _currentState = BurpeeState.plank;
           feedback = "Tư thế Plank thẳng người rất tốt! Hãy nhảy thu chân về.";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else if (kneeAngle > 155 &&
             hipAngle > 150 &&
             bodyHorizontalAngle > 70) {
           // Trở lại đứng thẳng (người tập đứng dậy thẳng lưng mà không bật chân làm plank)
           _currentState = BurpeeState.stand;
           feedback = "Hãy ngồi xổm sâu xuống sát mặt sàn.";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else {
           feedback =
               "Hãy bật cả hai chân ra sau, giữ thân thẳng song song mặt sàn (Plank).";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         }
         break;
 
       case BurpeeState.plank:
-        // Ở thế Plank, chuẩn bị thu chân về tư thế squat gập sâu
-        if (kneeAngle < 105 && hipAngle < 105 && bodyHorizontalAngle > 50) {
+        // Ở thế Plank, chuẩn bị thu chân về tư thế squat gập sâu kneeAngle < 105 &&
+        if (hipAngle < 105 && bodyHorizontalAngle > 20) {
           _currentState = BurpeeState.recover;
           feedback = "Đã thu chân về, hãy bật nhảy thẳng người lên!";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else if (kneeAngle > 155 &&
             hipAngle > 150 &&
             bodyHorizontalAngle > 70) {
           // Đứng dậy trực tiếp từ Plank (hủy rep)
           _currentState = BurpeeState.stand;
           feedback = "Hãy ngồi xổm sâu xuống sát mặt sàn.";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else {
           feedback = "Hãy nhảy thu chân sát về phía hai tay (góc gối < 105°).";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         }
         break;
 
@@ -140,8 +172,16 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         if (kneeAngle > 155 && hipAngle > 145) {
           _currentState = BurpeeState.jump;
           feedback = "Đang bật nhảy...";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         } else {
           feedback = "Hãy đứng thẳng dậy và chuẩn bị bật nhảy.";
+          print(feedback);
+          print(kneeAngle);
+          print(hipAngle);
+          print(bodyHorizontalAngle);
         }
         break;
 
@@ -155,28 +195,45 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         } else {
           isJumping = false; // Chưa xác định được chiều cao khi đứng thẳng;
         }
-
+        print(torsoLength);
+        print(_standingHipY);
+        print(hip.y);
+        print(isJumping);
+        print(isHandsRaised);
+        print(kneeAngle);
+        print(hipAngle);
         if (kneeAngle > 165 && hipAngle > 160 && isHandsRaised && isJumping) {
           _reps++;
           shouldCountRep = true;
           feedback = "Tuyệt vời! Hoàn thành rep $_reps.";
           _currentState = BurpeeState.stand;
+          print(feedback);
         } else if (kneeAngle < 115 && hipAngle < 115) {
           // Bắt đầu rep mới luôn mà bỏ qua bật nhảy của rep cũ để tránh bị treo ở bước nhảy
           _currentState = BurpeeState.squat;
           feedback = "Đã ngồi xổm, hãy bật chân ra sau thành Plank!";
+
+          print(feedback);
         } else {
           feedback = "Nhảy cao lên, duỗi thẳng người và giơ hai tay qua đầu.";
+
+          print(feedback);
         }
         break;
     }
 
     // Kiểm tra lỗi tư thế khi Plank (nếu chân thẳng nhưng người không nằm ngang)
-    if ((_currentState == BurpeeState.squat || _currentState == BurpeeState.plank) &&
-        kneeAngle > 140 && hipAngle > 140) {
+    if ((_currentState == BurpeeState.squat ||
+            _currentState == BurpeeState.plank) &&
+        kneeAngle > 140 &&
+        hipAngle > 140) {
       if (bodyHorizontalAngle >= 25 && bodyHorizontalAngle < 65) {
         isPostureCorrect = false;
         feedback = "Hãy giữ lưng và hông thẳng song song mặt sàn (Plank)!";
+        print(feedback);
+        print(kneeAngle);
+        print(hipAngle);
+        print(bodyHorizontalAngle);
       }
     }
 

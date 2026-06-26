@@ -48,7 +48,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   int _currentSetIndex = 0;
   int _currentSetCount = 0;
   Timer? _workoutTimer;
-
+    Pose? _lastValidPose; // Lưu pose cuối cùng hợp lệ
+  int _lostFrameCount = 0; // Đếm số frame không tìm thấy người
+  final int _maxAllowedLostFrames = 15; // Khoảng 0.5 giây (nếu 30fps)
   // Dữ liệu khung xương
   List<Pose> _poses = [];
 
@@ -185,68 +187,48 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   /// Phân tích hình ảnh camera bằng AI và chạy thuật toán nhận diện
   Future<void> _processImage(CameraImage image) async {
-    if (_session.isResting) {
-      if (mounted) {
-        setState(() {
-          _poses.clear();
-          _isPoseDetected = false;
-        });
-      }
-      _isProcessing = false;
-      return;
+  if (_session.isResting) {
+    if (mounted) {
+      setState(() { _poses.clear(); _isPoseDetected = false; });
     }
+    _isProcessing = false;
+    return;
+  }
 
-    final poses = await _poseDetectorService.processCameraImage(
-      image,
-      _cameraController,
-    );
+  final poses = await _poseDetectorService.processCameraImage(image, _cameraController);
 
-    if (!mounted) {
-      _isProcessing = false;
-      return;
+  if (!mounted) { _isProcessing = false; return; }
+
+  if (poses.isNotEmpty) {
+    // Tìm thấy người: reset bộ đếm và cập nhật pose mới
+    _lostFrameCount = 0;
+    _lastValidPose = poses.first;
+    _isPoseDetected = true;
+    
+    // Kiểm tra visibility (với Burpee thì đã set trả về true)
+    if (_checkFullBodyVisibility(poses.first, widget.exercise.type)) {
+      _analyzePose(poses.first);
     }
-
-    bool hasFullBody = false;
-    if (poses.isNotEmpty) {
-      hasFullBody = _checkFullBodyVisibility(poses.first, widget.exercise.type);
-    }
-
-    setState(() {
-      _poses = poses;
-      _isPoseDetected = poses.isNotEmpty;
-    });
-
-    if (poses.isNotEmpty) {
-      if (hasFullBody) {
-        if (_session.isResting) {
-          setState(() {
-            _session.feedbackMessage =
-                'Đang nghỉ ${_session.restSecondsLeft}s. Chuẩn bị cho set tiếp theo.';
-          });
-        } else {
-          _analyzePose(poses.first);
-        }
-      } else {
-        _evaluator
-            .reset(); // Reset trạng thái chuyển động khi mất dấu toàn thân
-        setState(() {
-          _session.isPostureCorrect = true; // Trạng thái chờ/bình thường
-          _session.feedbackMessage =
-              'Hiện chưa xác định được người trong khung hình.';
-        });
-      }
+  } else {
+    // Không tìm thấy người: dùng pose cũ nếu chưa quá thời gian cho phép
+    _lostFrameCount++;
+    if (_lostFrameCount < _maxAllowedLostFrames && _lastValidPose != null) {
+      // Dùng pose cũ để phân tích tiếp, giả định người đang thực hiện động tác
+      _analyzePose(_lastValidPose!);
     } else {
-      _evaluator.reset(); // Reset trạng thái khi không phát hiện thấy người
-      // Khi không nhận diện được người, đặt lại các phản hồi cơ bản
+      // Mất dấu quá lâu -> Reset mọi thứ
+      _evaluator.reset();
       setState(() {
+        _isPoseDetected = false;
         _session.isPostureCorrect = true;
-        _session.feedbackMessage =
-            'Hiện chưa xác định được người trong khung hình.';
+        _session.feedbackMessage = 'Hãy quay trở lại khung hình!';
       });
     }
-
-    _isProcessing = false;
   }
+
+  setState(() { _poses = poses; });
+  _isProcessing = false;
+}
 
   /// Thuật toán chính phân tích góc xương và kiểm tra tư thế
   void _analyzePose(Pose pose) {
@@ -293,6 +275,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   /// Thuật toán kiểm tra toàn thân người hoàn chỉnh trước khi nhận diện (Độ tin cậy >= 0.70)
   bool _checkFullBodyVisibility(Pose pose, ExerciseType type) {
+    print('Checking full body visibility for ${type.name}...');
+    if (type == ExerciseType.burpee) {
+      print("ok");
+      return true;
+    }
     const double standardConfidence = 0.75;
     const double strictConfidence = 0.82;
 
@@ -301,7 +288,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
 
     // 1. Đối với Squat, Jumping Jack và Walking Lunge (bắt buộc trực diện, đủ 2 bên trái & phải)
-    if (type == ExerciseType.squat || type == ExerciseType.jumpingJack || type == ExerciseType.walkingLunge) {
+    if (type == ExerciseType.squat ||
+        type == ExerciseType.jumpingJack ||
+        type == ExerciseType.walkingLunge) {
       final standardJoints = [
         PoseLandmarkType.leftShoulder,
         PoseLandmarkType.rightShoulder,
