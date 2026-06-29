@@ -19,6 +19,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
+  final _ageController = TextEditingController();
 
   final AuthService _authService = AuthService();
   bool _isLoading = true;
@@ -38,6 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController.dispose();
     _weightController.dispose();
     _heightController.dispose();
+    _ageController.dispose();
     super.dispose();
   }
 
@@ -56,6 +58,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _nameController.text = profile['full_name'] ?? '';
           _weightController.text = (profile['weight'] ?? 0.0).toString();
           _heightController.text = (profile['height'] ?? 0.0).toString();
+          _ageController.text = (profile['age'] ?? 0).toString();
         });
       }
     } catch (e) {
@@ -78,11 +81,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final double weight = double.tryParse(_weightController.text) ?? 0.0;
       final double height = double.tryParse(_heightController.text) ?? 0.0;
+      final int age = int.tryParse(_ageController.text) ?? 0;
 
       await _authService.updateUserProfile(
         fullName: _nameController.text.trim(),
         weight: weight,
         height: height,
+        age: age,
       );
 
       setState(() {
@@ -295,6 +300,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Ô nhập Độ tuổi
+                    TextFormField(
+                      controller: _ageController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Tuổi',
+                        labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                        prefixIcon: const Icon(Icons.cake_outlined, color: AppTheme.textSecondary),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Colors.white12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) return 'Bắt buộc';
+                        final val = int.tryParse(value);
+                        if (val == null || val <= 5 || val > 120) {
+                          return 'Tuổi không hợp lệ (5 - 120)';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 36),
 

@@ -65,6 +65,22 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         setState(() {
           _userName = profile['full_name'] ?? 'Trainer';
         });
+
+        // Kiểm tra xem người dùng đã cập nhật đầy đủ chiều cao, cân nặng, độ tuổi chưa
+        final double weight = (profile['weight'] as num?)?.toDouble() ?? 0.0;
+        final double height = (profile['height'] as num?)?.toDouble() ?? 0.0;
+        final int age = (profile['age'] as num?)?.toInt() ?? 0;
+
+        if (weight == 0.0 || height == 0.0 || age == 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showPhysicalSurveyDialog(
+              currentName: profile['full_name'] ?? '',
+              currentWeight: weight,
+              currentHeight: height,
+              currentAge: age,
+            );
+          });
+        }
       }
 
       // 2. Tải thống kê tập luyện từ CSDL
@@ -84,6 +100,239 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         });
       }
     }
+  }
+
+  void _showPhysicalSurveyDialog({
+    required String currentName,
+    required double currentWeight,
+    required double currentHeight,
+    required int currentAge,
+  }) {
+    final formKey = GlobalKey<FormState>();
+    final weightController = TextEditingController(
+      text: currentWeight > 0 ? currentWeight.toString() : '',
+    );
+    final heightController = TextEditingController(
+      text: currentHeight > 0 ? currentHeight.toString() : '',
+    );
+    final ageController = TextEditingController(
+      text: currentAge > 0 ? currentAge.toString() : '',
+    );
+    bool isSavingLocal = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return PopScope(
+          canPop: false,
+          child: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                backgroundColor: AppTheme.cardBackground,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                title: const Column(
+                  children: [
+                    Icon(
+                      Icons.settings_accessibility_rounded,
+                      color: AppTheme.neonGreen,
+                      size: 40,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Khảo Sát Thể Chất Của Bạn',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+                content: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Để AI đề xuất bài tập và thực đơn ăn uống hợp lý nhất, vui lòng cung cấp chỉ số chiều cao, cân nặng và tuổi của bạn:',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Chiều cao
+                        TextFormField(
+                          controller: heightController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Chiều cao (cm)',
+                            labelStyle: const TextStyle(color: Colors.grey),
+                            prefixIcon: const Icon(Icons.height, color: AppTheme.neonGreen),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Vui lòng nhập chiều cao';
+                            }
+                            final val = double.tryParse(value);
+                            if (val == null || val <= 50 || val > 250) {
+                              return 'Chiều cao không hợp lệ (50 - 250 cm)';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Cân nặng
+                        TextFormField(
+                          controller: weightController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Cân nặng (kg)',
+                            labelStyle: const TextStyle(color: Colors.grey),
+                            prefixIcon: const Icon(Icons.monitor_weight, color: AppTheme.neonGreen),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Vui lòng nhập cân nặng';
+                            }
+                            final val = double.tryParse(value);
+                            if (val == null || val <= 10 || val > 300) {
+                              return 'Cân nặng không hợp lệ (10 - 300 kg)';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Tuổi
+                        TextFormField(
+                          controller: ageController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Độ tuổi',
+                            labelStyle: const TextStyle(color: Colors.grey),
+                            prefixIcon: const Icon(Icons.cake, color: AppTheme.neonGreen),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Vui lòng nhập tuổi';
+                            }
+                            final val = int.tryParse(value);
+                            if (val == null || val <= 5 || val > 120) {
+                              return 'Tuổi không hợp lệ (5 - 120)';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSavingLocal
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) return;
+                              setDialogState(() {
+                                isSavingLocal = true;
+                              });
+
+                              try {
+                                final double weight = double.parse(weightController.text);
+                                final double height = double.parse(heightController.text);
+                                final int age = int.parse(ageController.text);
+
+                                await _authService.updateUserProfile(
+                                  fullName: currentName.isNotEmpty ? currentName : 'Trainer',
+                                  weight: weight,
+                                  height: height,
+                                  age: age,
+                                );
+
+                                if (context.mounted) {
+                                  Navigator.pop(context); // Đóng dialog
+                                  _loadDashboardData();
+                                }
+                              } catch (e) {
+                                debugPrint('Lỗi lưu khảo sát: $e');
+                              } finally {
+                                setDialogState(() {
+                                  isSavingLocal = false;
+                                });
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.neonGreen,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: isSavingLocal
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.black,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'HOÀN THÀNH',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   void _handleProfileClick() {

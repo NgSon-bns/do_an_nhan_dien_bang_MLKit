@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService {
@@ -122,19 +123,37 @@ class AuthService {
     }
   }
 
-  // 7. Cập nhật thông số profile (chiều cao, cân nặng)
+  // 7. Cập nhật thông số profile (chiều cao, cân nặng, độ tuổi)
   Future<void> updateUserProfile({
     required String fullName,
     required double weight,
     required double height,
+    int? age,
   }) async {
     final user = currentUser;
     if (user == null) return;
 
-    await _client.from('profiles').update({
+    final Map<String, dynamic> updateData = {
       'full_name': fullName,
       'weight': weight,
       'height': height,
-    }).eq('id', user.id);
+    };
+
+    if (age != null) {
+      updateData['age'] = age;
+    }
+
+    try {
+      await _client.from('profiles').update(updateData).eq('id', user.id);
+    } catch (e) {
+      // Nếu cột 'age' chưa tồn tại trong Supabase, loại bỏ và cập nhật lại để tránh lỗi crash
+      debugPrint('Lỗi cập nhật thông số profile (có thể do thiếu cột age): $e');
+      if (age != null) {
+        updateData.remove('age');
+        await _client.from('profiles').update(updateData).eq('id', user.id);
+      } else {
+        rethrow;
+      }
+    }
   }
 }

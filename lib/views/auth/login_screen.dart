@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   
                   // Tiêu đề chào mừng
                   const Text(
-                    'AI Fitness Tracker',
+                    'AuraFit AI',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 28,

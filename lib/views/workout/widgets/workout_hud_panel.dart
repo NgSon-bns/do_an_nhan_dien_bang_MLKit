@@ -17,6 +17,7 @@ class WorkoutHudPanel extends StatefulWidget {
   final VoidCallback onBackPressed;
   final VoidCallback onResetPressed;
   final VoidCallback onToggleCameraPressed;
+  final VoidCallback? onSkipRestPressed;
 
   const WorkoutHudPanel({
     super.key,
@@ -30,6 +31,7 @@ class WorkoutHudPanel extends StatefulWidget {
     required this.onBackPressed,
     required this.onResetPressed,
     required this.onToggleCameraPressed,
+    this.onSkipRestPressed,
   });
 
   @override
@@ -43,6 +45,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
   bool _isSpeaking = false;
   String _lastSpokenMessage = '';
   String? _queuedMessage;
+  DateTime? _lastErrorSpeechTime;
 
   @override
   void initState() {
@@ -81,8 +84,19 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
   Future<void> _speak(String message, {bool isErrorFeedback = false}) async {
     if (message.isEmpty) return;
 
-    // Error feedback phát liên tục, announcements chỉ phát 1 lần
-    if (!isErrorFeedback && _lastSpokenMessage == message) return;
+    final now = DateTime.now();
+
+    if (isErrorFeedback) {
+      // Giới hạn thời gian phát cảnh báo sai tư thế: tối thiểu 4 giây giữa các lần phát để không bị lặp liên tục dồn dập
+      if (_lastErrorSpeechTime != null &&
+          now.difference(_lastErrorSpeechTime!) < const Duration(seconds: 4)) {
+        return;
+      }
+      _lastErrorSpeechTime = now;
+    } else {
+      // Announcements chỉ phát một lần nếu trùng lặp
+      if (_lastSpokenMessage == message) return;
+    }
 
     if (_isSpeaking) {
       _queuedMessage = message;
@@ -156,7 +170,9 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
         msg.contains('Không tìm thấy') ||
         msg.contains('Đang nghỉ') ||
         msg.contains('Bắt đầu set') ||
-        msg.contains('Chuẩn bị')) {
+        msg.contains('Chuẩn bị') ||
+        msg.contains('quay trở lại') ||
+        msg.contains('điều chỉnh')) {
       return HudStatus.warning;
     }
     if (widget.session.isPostureCorrect) {
@@ -308,6 +324,27 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                       ),
                     ),
                   ),
+                  if (widget.session.isResting && widget.onSkipRestPressed != null) ...[
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed: widget.onSkipRestPressed,
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'BỎ QUA',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

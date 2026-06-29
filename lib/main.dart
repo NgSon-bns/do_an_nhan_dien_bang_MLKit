@@ -58,7 +58,7 @@ class MyApp extends StatelessWidget {
         isSupabaseInitialized && AuthService().isAuthenticated;
 
     return MaterialApp(
-      title: 'AI Fitness Counter',
+      title: 'AuraFit AI',
       theme: AppTheme.darkTheme,
       debugShowCheckedModeBanner: false,
       home: showDashboardDirectly

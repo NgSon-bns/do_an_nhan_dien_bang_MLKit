@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
@@ -41,6 +42,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _isCameraInitialized = false;
   bool _isProcessing = false;
   bool _isPoseDetected = false;
+  bool _isFullBodyVisible = false;
+  double _hipMovementSpeed = 0.0;
+  double _prevHipX = 0.0;
+  double _prevHipY = 0.0;
+  bool _isBodyStill = false;
 
   // Đối tượng lưu trữ trạng thái buổi tập
   final WorkoutSession _session = WorkoutSession();
@@ -126,9 +132,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       setState(() {
         _session.elapsedSeconds++;
 
-        // Dành riêng cho Plank: Chỉ tích lũy giây tập khi đúng tư thế
+        // Dành riêng cho Plank: Chỉ tích lũy giây tập khi đúng tư thế, thấy toàn thân và nằm yên tĩnh
         if (widget.exercise.type == ExerciseType.plank) {
-          if (_isPoseDetected && _session.isPostureCorrect) {
+          if (_isPoseDetected && _session.isPostureCorrect && _isFullBodyVisible && _isBodyStill) {
             _session.activeHoldSeconds++;
           }
         }
@@ -185,32 +191,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     });
   }
 
-  /// Phân tích hình ảnh camera bằng AI và chạy thuật toán nhận diện
-  Future<void> _processImage(CameraImage image) async {
-  if (_session.isResting) {
-    if (mounted) {
-      setState(() { _poses.clear(); _isPoseDetected = false; });
-    }
-    _isProcessing = false;
-    return;
-  }
-
-  final poses = await _poseDetectorService.processCameraImage(image, _cameraController);
-
-  if (!mounted) { _isProcessing = false; return; }
-
-  if (poses.isNotEmpty) {
-    // Tìm thấy người: reset bộ đếm và cập nhật pose mới
-    _lostFrameCount = 0;
-    _lastValidPose = poses.first;
-    _isPoseDetected = true;
-    
-    // Kiểm tra visibility (với Burpee thì đã set trả về true)
-    if (_checkFullBodyVisibility(poses.first, widget.exercise.type)) {
-      _analyzePose(poses.first);
-    }
-  } else {
-    // Không tìm thấy người: dùng pose cũ nếu chưa quá thời gian cho phép
+  void _handleNoPersonDetected() {
     _lostFrameCount++;
     if (_lostFrameCount < _maxAllowedLostFrames && _lastValidPose != null) {
       // Dùng pose cũ để phân tích tiếp, giả định người đang thực hiện động tác
@@ -218,17 +199,106 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     } else {
       // Mất dấu quá lâu -> Reset mọi thứ
       _evaluator.reset();
-      setState(() {
-        _isPoseDetected = false;
-        _session.isPostureCorrect = true;
-        _session.feedbackMessage = 'Hãy quay trở lại khung hình!';
-      });
+      _prevHipX = 0.0;
+      _prevHipY = 0.0;
+      _hipMovementSpeed = 0.0;
+      if (mounted) {
+        setState(() {
+          _isPoseDetected = false;
+          _isFullBodyVisible = false;
+          _isBodyStill = false;
+          _session.isPostureCorrect = true;
+          _session.feedbackMessage = 'Hãy quay trở lại khung hình!';
+        });
+      }
     }
   }
 
-  setState(() { _poses = poses; });
-  _isProcessing = false;
-}
+  /// Phân tích hình ảnh camera bằng AI và chạy thuật toán nhận diện
+  Future<void> _processImage(CameraImage image) async {
+    if (_session.isResting) {
+      if (mounted) {
+        setState(() { _poses.clear(); _isPoseDetected = false; _isFullBodyVisible = false; });
+      }
+      _isProcessing = false;
+      return;
+    }
+
+    final poses = await _poseDetectorService.processCameraImage(image, _cameraController);
+
+    if (!mounted) { _isProcessing = false; return; }
+
+    if (poses.isNotEmpty) {
+      final pose = poses.first;
+      
+      // Tính độ tin cậy trung bình của các khớp để loại bỏ người ảo (phantom pose)
+      double totalLikelihood = 0.0;
+      int landmarkCount = 0;
+      for (final landmark in pose.landmarks.values) {
+        totalLikelihood += landmark.likelihood;
+        landmarkCount++;
+      }
+      double avgLikelihood = landmarkCount > 0 ? totalLikelihood / landmarkCount : 0.0;
+
+      if (avgLikelihood < 0.45) {
+        // Độ tin cậy quá thấp -> Coi như không tìm thấy người thực sự
+        _handleNoPersonDetected();
+      } else {
+        _lostFrameCount = 0;
+        _lastValidPose = pose;
+        _isPoseDetected = true;
+        
+        // Tính toán tốc độ di chuyển để xác nhận trạng thái "nằm yên" (dành cho Plank)
+        final shoulder = pose.landmarks[PoseLandmarkType.rightShoulder] ?? pose.landmarks[PoseLandmarkType.leftShoulder];
+        final hip = pose.landmarks[PoseLandmarkType.rightHip] ?? pose.landmarks[PoseLandmarkType.leftHip];
+        if (shoulder != null && hip != null) {
+          double torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
+          if (torsoLength > 0) {
+            if (_prevHipX != 0.0 && _prevHipY != 0.0) {
+              double dx = hip.x - _prevHipX;
+              double dy = hip.y - _prevHipY;
+              double displacement = math.sqrt(dx * dx + dy * dy);
+              double normalizedDisplacement = displacement / torsoLength;
+              
+              _hipMovementSpeed = _hipMovementSpeed * 0.85 + normalizedDisplacement * 0.15;
+              _isBodyStill = _hipMovementSpeed < 0.035; // Thư giãn một chút để động tác thở nhẹ không bị ngắt quãng
+            } else {
+              _isBodyStill = false;
+            }
+            _prevHipX = hip.x;
+            _prevHipY = hip.y;
+          }
+        }
+
+        // Kiểm tra xem camera có nhìn rõ toàn bộ cơ thể để phân tích không
+        if (_checkFullBodyVisibility(pose, widget.exercise.type)) {
+          _isFullBodyVisible = true;
+          _analyzePose(pose);
+        } else {
+          _isFullBodyVisible = false;
+          _isBodyStill = false;
+          // Có người nhưng camera bị khuất hoặc đứng quá gần
+          if (mounted) {
+            setState(() {
+              _session.isPostureCorrect = true; // Cho là đúng để tránh báo bíp liên tục
+              if (widget.exercise.type == ExerciseType.pushUp || widget.exercise.type == ExerciseType.plank) {
+                _session.feedbackMessage = 'Hãy điều chỉnh tư thế để camera thấy rõ từ đầu đến chân!';
+              } else {
+                _session.feedbackMessage = 'Hãy đứng lùi lại để camera thấy rõ toàn thân!';
+              }
+            });
+          }
+        }
+      }
+    } else {
+      _handleNoPersonDetected();
+    }
+
+    if (mounted) {
+      setState(() { _poses = poses; });
+    }
+    _isProcessing = false;
+  }
 
   /// Thuật toán chính phân tích góc xương và kiểm tra tư thế
   void _analyzePose(Pose pose) {
@@ -590,6 +660,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     return true; // Thoát màn hình
   }
 
+  void _skipRest() {
+    if (_session.isResting) {
+      setState(() {
+        _session.isResting = false;
+        _session.restSecondsLeft = 0;
+        _session.announcementMessage = 'Kết thúc nghỉ. Bắt đầu set tiếp theo.';
+        _session.feedbackMessage = 'Bắt đầu set tiếp theo!';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -630,6 +711,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       },
                       onResetPressed: _resetWorkout,
                       onToggleCameraPressed: _toggleCamera,
+                      onSkipRestPressed: _skipRest,
                     ),
                   ),
                 ],
