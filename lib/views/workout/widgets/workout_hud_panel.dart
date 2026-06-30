@@ -18,6 +18,7 @@ class WorkoutHudPanel extends StatefulWidget {
   final VoidCallback onResetPressed;
   final VoidCallback onToggleCameraPressed;
   final VoidCallback? onSkipRestPressed;
+  final bool isWorkoutStarted;
 
   const WorkoutHudPanel({
     super.key,
@@ -32,6 +33,7 @@ class WorkoutHudPanel extends StatefulWidget {
     required this.onResetPressed,
     required this.onToggleCameraPressed,
     this.onSkipRestPressed,
+    this.isWorkoutStarted = false,
   });
 
   @override
@@ -85,6 +87,20 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     if (message.isEmpty) return;
 
     final now = DateTime.now();
+
+    // Kiểm tra tin nhắn đếm ngược để ngắt lời phát âm thanh ngay lập tức
+    final isCountdown = message == 'Chuẩn bị' ||
+        message == '3' ||
+        message == '2' ||
+        message == '1' ||
+        message == 'Bắt đầu!' ||
+        message == 'Đã hủy';
+
+    if (isCountdown) {
+      await _tts.stop();
+      await _playMessage(message);
+      return;
+    }
 
     if (isErrorFeedback) {
       // Giới hạn thời gian phát cảnh báo sai tư thế: tối thiểu 4 giây giữa các lần phát để không bị lặp liên tục dồn dập
@@ -256,38 +272,83 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
           ),
         ),
 
-        // 2. KHUNG CHỈ SỐ
-        Positioned(
-          top: 110,
-          left: 20,
-          right: 20,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: AppTheme.glassDecoration(
-              color: Colors.black.withValues(alpha: 0.8),
-              borderRadius: 16,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildStatColumn(
-                  isDuration ? 'THỜI GIAN GIỮ' : 'SỐ LẦN ĐÃ TẬP',
-                  isDuration
-                      ? '${widget.session.activeHoldSeconds}'
-                      : '${widget.session.counter}',
-                  isDuration ? 'giây' : 'lần',
-                ),
-                if (!isDuration) ...[
-                  Container(height: 50, width: 1, color: Colors.white12),
-                  Expanded(child: _buildTargetInfo(widget.targetCount)),
-                ] else ...[
-                  Container(height: 50, width: 1, color: Colors.white12),
-                  _buildInfoColumn(),
+        // 2. KHUNG CHỈ SỐ HOẶC HƯỚNG DẪN CĂN CHỈNH
+        if (widget.isWorkoutStarted)
+          Positioned(
+            top: 110,
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: AppTheme.glassDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: 16,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildStatColumn(
+                    isDuration ? 'THỜI GIAN GIỮ' : 'SỐ LẦN ĐÃ TẬP',
+                    isDuration
+                        ? '${widget.session.activeHoldSeconds}'
+                        : '${widget.session.counter}',
+                    isDuration ? 'giây' : 'lần',
+                  ),
+                  if (!isDuration) ...[
+                    Container(height: 50, width: 1, color: Colors.white12),
+                    Expanded(child: _buildTargetInfo(widget.targetCount)),
+                  ] else ...[
+                    Container(height: 50, width: 1, color: Colors.white12),
+                    _buildInfoColumn(),
+                  ],
                 ],
-              ],
+              ),
+            ),
+          )
+        else
+          Positioned(
+            top: 175, // Tránh đè lên thanh chọn góc camera
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: AppTheme.glassDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: 16,
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: AppTheme.neonGreen, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'HƯỚNG DẪN BẮT ĐẦU',
+                          style: TextStyle(
+                            color: AppTheme.neonGreen,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Vui lòng đứng vào khung chữ nhật trên màn hình và xoay người theo đúng góc camera đã chọn ở phía trên.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 11,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
 
         // 3. KHUNG CẢNH BÁO (Tối ưu với AnimatedBuilder và AnimatedContainer)
         if (widget.session.feedbackMessage.isNotEmpty)

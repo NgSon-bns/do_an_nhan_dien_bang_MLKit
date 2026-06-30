@@ -11,10 +11,12 @@ import '../../models/exercise.dart';
 import '../../models/workout_session.dart';
 import '../../services/pose_analysis/base_pose_evaluator.dart';
 import '../../services/pose_analysis/evaluator_factory.dart';
+import '../../services/pose_analysis/alignment_helper.dart';
 import '../../services/pose_detector_service.dart';
 import '../../services/database_service.dart';
 import 'widgets/camera_stream_view.dart';
 import 'widgets/workout_hud_panel.dart';
+import 'widgets/pose_skeleton_painter.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final ExerciseDetail exercise;
@@ -54,7 +56,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   int _currentSetIndex = 0;
   int _currentSetCount = 0;
   Timer? _workoutTimer;
-    Pose? _lastValidPose; // Lưu pose cuối cùng hợp lệ
+  Pose? _lastValidPose; // Lưu pose cuối cùng hợp lệ
   int _lostFrameCount = 0; // Đếm số frame không tìm thấy người
   final int _maxAllowedLostFrames = 15; // Khoảng 0.5 giây (nếu 30fps)
   // Dữ liệu khung xương
@@ -64,6 +66,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   // Cờ hiệu kiểm soát lỗi tư thế để tránh cộng dồn lỗi liên tục theo từng khung hình (30fps)
   bool _wasPostureCorrectLastFrame = true;
+
+  // Trạng thái căn chỉnh tư thế & góc camera trước khi tập
+  late CameraAngle _targetAngle;
+  bool _isWorkoutStarted = false;
+  bool _isAligned = false;
+  int _countdownSeconds = -1;
+  Timer? _countdownTimer;
+  int _consecutiveAlignedFrames = 0;
+  final int _requiredAlignedFrames = 12; // Khoảng 0.4s để tránh nhiễu
+  String _alignmentFeedback = 'Hãy di chuyển vào khung hình';
+  Size? _imageSize;
 
   @override
   void initState() {
@@ -75,10 +88,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ? [widget.targetCount]
         : ExerciseDetail.computeSetPlan(widget.targetCount);
 
+    // Đặt góc camera đích mặc định tùy theo bài tập
+    if (widget.exercise.type == ExerciseType.squat ||
+        widget.exercise.type == ExerciseType.jumpingJack) {
+      _targetAngle = CameraAngle.front;
+    } else {
+      _targetAngle = CameraAngle.side;
+    }
+
+    _session.feedbackMessage = _alignmentFeedback;
+
     // Thường ưu tiên camera trước (Selfie) cho tập luyện nếu có
     _findSelfieCamera();
     _initializeCamera();
-    _startTimer();
   }
 
   void _findSelfieCamera() {
@@ -181,6 +203,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   /// Reset bộ đếm lần tập và thời gian
   void _resetWorkout() {
     _evaluator.reset();
+    _cancelCountdown();
     setState(() {
       _session.reset();
       _currentSetIndex = 0;
@@ -188,17 +211,64 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       _poses.clear();
       _isPoseDetected = false;
       _wasPostureCorrectLastFrame = true;
+      _isWorkoutStarted = false;
+      _isAligned = false;
+      _consecutiveAlignedFrames = 0;
+      _session.feedbackMessage = _alignmentFeedback;
     });
+  }
+
+  void _startCountdown() {
+    if (_countdownTimer != null && _countdownTimer!.isActive) return;
+
+    setState(() {
+      _countdownSeconds = 3;
+      _session.announcementMessage = 'Chuẩn bị';
+    });
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _countdownSeconds--;
+        if (_countdownSeconds > 0) {
+          _session.announcementMessage = '$_countdownSeconds';
+        } else if (_countdownSeconds == 0) {
+          _session.announcementMessage = 'Bắt đầu!';
+          _isWorkoutStarted = true;
+          _startTimer();
+          timer.cancel();
+          _countdownSeconds = -1;
+        }
+      });
+    });
+  }
+
+  void _cancelCountdown() {
+    if (_countdownTimer != null && _countdownTimer!.isActive) {
+      _countdownTimer!.cancel();
+      _session.announcementMessage = 'Đã hủy';
+      setState(() {
+        _countdownSeconds = -1;
+      });
+    }
   }
 
   void _handleNoPersonDetected() {
     _lostFrameCount++;
-    if (_lostFrameCount < _maxAllowedLostFrames && _lastValidPose != null) {
+    if (_isWorkoutStarted && _lostFrameCount < _maxAllowedLostFrames && _lastValidPose != null) {
       // Dùng pose cũ để phân tích tiếp, giả định người đang thực hiện động tác
       _analyzePose(_lastValidPose!);
     } else {
-      // Mất dấu quá lâu -> Reset mọi thứ
-      _evaluator.reset();
+      // Mất dấu quá lâu hoặc chưa tập -> Reset mọi thứ
+      if (_isWorkoutStarted) {
+        _evaluator.reset();
+      } else {
+        _consecutiveAlignedFrames = 0;
+        _cancelCountdown();
+      }
       _prevHipX = 0.0;
       _prevHipY = 0.0;
       _hipMovementSpeed = 0.0;
@@ -207,6 +277,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           _isPoseDetected = false;
           _isFullBodyVisible = false;
           _isBodyStill = false;
+          _isAligned = false;
           _session.isPostureCorrect = true;
           _session.feedbackMessage = 'Hãy quay trở lại khung hình!';
         });
@@ -228,6 +299,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     if (!mounted) { _isProcessing = false; return; }
 
+    // Lưu kích thước hình ảnh để CustomPainter sử dụng
+    if (poses.isNotEmpty && _imageSize == null) {
+      if (mounted) {
+        setState(() {
+          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+        });
+      }
+    }
+
+    final rotation = InputImageRotationValue.fromRawValue(
+          _cameraController.description.sensorOrientation,
+        ) ??
+        InputImageRotation.rotation0deg;
+
     if (poses.isNotEmpty) {
       final pose = poses.first;
       
@@ -247,46 +332,78 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _lostFrameCount = 0;
         _lastValidPose = pose;
         _isPoseDetected = true;
-        
-        // Tính toán tốc độ di chuyển để xác nhận trạng thái "nằm yên" (dành cho Plank)
-        final shoulder = pose.landmarks[PoseLandmarkType.rightShoulder] ?? pose.landmarks[PoseLandmarkType.leftShoulder];
-        final hip = pose.landmarks[PoseLandmarkType.rightHip] ?? pose.landmarks[PoseLandmarkType.leftHip];
-        if (shoulder != null && hip != null) {
-          double torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
-          if (torsoLength > 0) {
-            if (_prevHipX != 0.0 && _prevHipY != 0.0) {
-              double dx = hip.x - _prevHipX;
-              double dy = hip.y - _prevHipY;
-              double displacement = math.sqrt(dx * dx + dy * dy);
-              double normalizedDisplacement = displacement / torsoLength;
-              
-              _hipMovementSpeed = _hipMovementSpeed * 0.85 + normalizedDisplacement * 0.15;
-              _isBodyStill = _hipMovementSpeed < 0.035; // Thư giãn một chút để động tác thở nhẹ không bị ngắt quãng
-            } else {
-              _isBodyStill = false;
-            }
-            _prevHipX = hip.x;
-            _prevHipY = hip.y;
-          }
-        }
 
-        // Kiểm tra xem camera có nhìn rõ toàn bộ cơ thể để phân tích không
-        if (_checkFullBodyVisibility(pose, widget.exercise.type)) {
-          _isFullBodyVisible = true;
-          _analyzePose(pose);
-        } else {
-          _isFullBodyVisible = false;
-          _isBodyStill = false;
-          // Có người nhưng camera bị khuất hoặc đứng quá gần
+        if (!_isWorkoutStarted) {
+          // Giai đoạn căn chỉnh tư thế
+          final alignmentResult = AlignmentHelper.checkAlignment(
+            pose: pose,
+            exerciseType: widget.exercise.type,
+            targetAngle: _targetAngle,
+            screenSize: MediaQuery.of(context).size,
+            imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+            rotation: rotation,
+            isFrontCamera: _cameraController.description.lensDirection == CameraLensDirection.front,
+          );
+
           if (mounted) {
             setState(() {
-              _session.isPostureCorrect = true; // Cho là đúng để tránh báo bíp liên tục
-              if (widget.exercise.type == ExerciseType.pushUp || widget.exercise.type == ExerciseType.plank) {
-                _session.feedbackMessage = 'Hãy điều chỉnh tư thế để camera thấy rõ từ đầu đến chân!';
-              } else {
-                _session.feedbackMessage = 'Hãy đứng lùi lại để camera thấy rõ toàn thân!';
-              }
+              _isFullBodyVisible = alignmentResult.isBodyInFrame;
+              _isAligned = alignmentResult.isAligned;
+              _alignmentFeedback = alignmentResult.feedbackMessage;
+              _session.feedbackMessage = alignmentResult.feedbackMessage;
             });
+          }
+
+          if (alignmentResult.isAligned) {
+            _consecutiveAlignedFrames++;
+            if (_consecutiveAlignedFrames >= _requiredAlignedFrames && _countdownSeconds == -1) {
+              _startCountdown();
+            }
+          } else {
+            _consecutiveAlignedFrames = 0;
+            _cancelCountdown();
+          }
+        } else {
+          // Giai đoạn tập luyện bình thường
+          // Tính toán tốc độ di chuyển để xác nhận trạng thái "nằm yên" (dành cho Plank)
+          final shoulder = pose.landmarks[PoseLandmarkType.rightShoulder] ?? pose.landmarks[PoseLandmarkType.leftShoulder];
+          final hip = pose.landmarks[PoseLandmarkType.rightHip] ?? pose.landmarks[PoseLandmarkType.leftHip];
+          if (shoulder != null && hip != null) {
+            double torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
+            if (torsoLength > 0) {
+              if (_prevHipX != 0.0 && _prevHipY != 0.0) {
+                double dx = hip.x - _prevHipX;
+                double dy = hip.y - _prevHipY;
+                double displacement = math.sqrt(dx * dx + dy * dy);
+                double normalizedDisplacement = displacement / torsoLength;
+                
+                _hipMovementSpeed = _hipMovementSpeed * 0.85 + normalizedDisplacement * 0.15;
+                _isBodyStill = _hipMovementSpeed < 0.035;
+              } else {
+                _isBodyStill = false;
+              }
+              _prevHipX = hip.x;
+              _prevHipY = hip.y;
+            }
+          }
+
+          // Kiểm tra xem camera có nhìn rõ toàn bộ cơ thể để phân tích không
+          if (_checkFullBodyVisibility(pose, widget.exercise.type)) {
+            _isFullBodyVisible = true;
+            _analyzePose(pose);
+          } else {
+            _isFullBodyVisible = false;
+            _isBodyStill = false;
+            if (mounted) {
+              setState(() {
+                _session.isPostureCorrect = true;
+                if (widget.exercise.type == ExerciseType.pushUp || widget.exercise.type == ExerciseType.plank) {
+                  _session.feedbackMessage = 'Hãy điều chỉnh tư thế để camera thấy rõ từ đầu đến chân!';
+                } else {
+                  _session.feedbackMessage = 'Hãy đứng lùi lại để camera thấy rõ toàn thân!';
+                }
+              });
+            }
           }
         }
       }
@@ -461,6 +578,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _workoutTimer?.cancel();
     _cameraController.dispose();
     _poseDetectorService.close();
@@ -693,7 +811,169 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   // 1. Luồng video từ Camera
                   CameraStreamView(controller: _cameraController),
 
-                  // 4. Bảng HUD hiển thị thông số và cảnh báo
+                  // 2. Khung xương Pose Skeleton Painter (Hiển thị đè lên camera)
+                  if (_poses.isNotEmpty && _imageSize != null)
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: PoseSkeletonPainter(
+                          pose: _poses.first,
+                          imageSize: _imageSize!,
+                          rotation: InputImageRotationValue.fromRawValue(
+                                _cameraController.description.sensorOrientation,
+                              ) ??
+                              InputImageRotation.rotation0deg,
+                          isFrontCamera: _cameraController.description.lensDirection ==
+                              CameraLensDirection.front,
+                          isBackCorrect: _session.isPostureCorrect,
+                          isLegsCorrect: true,
+                          isArmsCorrect: true,
+                        ),
+                      ),
+                    ),
+
+                  // 3. Khung chữ nhật căn chỉnh phát sáng (glowing cutout overlay)
+                  if (!_isWorkoutStarted)
+                    Positioned.fill(
+                      child: Builder(
+                        builder: (context) {
+                          final screenSize = MediaQuery.of(context).size;
+                          final isHorizontal = AlignmentHelper.isHorizontalLayout(widget.exercise.type, _targetAngle);
+                          final double boxWidth;
+                          final double boxHeight;
+                          final double boxLeft;
+                          final double boxTop;
+
+                          if (isHorizontal) {
+                            boxWidth = screenSize.width * 0.90;
+                            boxHeight = screenSize.height * 0.45;
+                            boxLeft = (screenSize.width - boxWidth) / 2;
+                            boxTop = (screenSize.height - boxHeight) / 2 + 60;
+                          } else {
+                            boxWidth = screenSize.width * 0.65;
+                            boxHeight = screenSize.height * 0.80;
+                            boxLeft = (screenSize.width - boxWidth) / 2;
+                            boxTop = (screenSize.height - boxHeight) / 2;
+                          }
+
+                          final rect = Rect.fromLTWH(boxLeft, boxTop, boxWidth, boxHeight);
+                          return CustomPaint(
+                            painter: AlignmentFramePainter(
+                              rect: rect,
+                              isAligned: _isAligned,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                  // 4. Thanh chọn góc camera ở phía trên (khi chưa tập)
+                  if (!_isWorkoutStarted)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 70,
+                      left: 16,
+                      right: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.white10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'CHỌN GÓC CAMERA ĐẶT MÁY',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: CameraAngle.values.map((angle) {
+                                  final isSelected = _targetAngle == angle;
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                    child: ChoiceChip(
+                                      label: Text(
+                                        AlignmentHelper.getAngleName(angle),
+                                        style: TextStyle(
+                                          color: isSelected ? Colors.black : Colors.white,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      selected: isSelected,
+                                      selectedColor: AppTheme.neonGreen,
+                                      backgroundColor: Colors.white.withValues(alpha: 0.08),
+                                      onSelected: (selected) {
+                                        if (selected) {
+                                          setState(() {
+                                            _targetAngle = angle;
+                                            _consecutiveAlignedFrames = 0;
+                                            _cancelCountdown();
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // 5. Hiển thị đếm ngược 3s kích thước lớn ở tâm
+                  if (!_isWorkoutStarted && _countdownSeconds > 0)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black45,
+                        child: Center(
+                          child: TweenAnimationBuilder<double>(
+                            key: ValueKey<int>(_countdownSeconds),
+                            tween: Tween<double>(begin: 1.6, end: 1.0),
+                            duration: const Duration(milliseconds: 600),
+                            builder: (context, value, child) {
+                              return Transform.scale(
+                                scale: value,
+                                child: Text(
+                                  '$_countdownSeconds',
+                                  style: TextStyle(
+                                    fontSize: 160,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppTheme.neonGreen,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withValues(alpha: 0.8),
+                                        offset: const Offset(0, 12),
+                                        blurRadius: 24,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 6. Bảng HUD hiển thị thông số và cảnh báo
                   Positioned.fill(
                     child: WorkoutHudPanel(
                       exercise: widget.exercise,
@@ -703,6 +983,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       feedbackMessage: _session.feedbackMessage,
                       isPostureCorrect: _session.isPostureCorrect,
                       announcementMessage: _session.announcementMessage,
+                      isWorkoutStarted: _isWorkoutStarted,
                       onBackPressed: () async {
                         final shouldPop = await _onBackPressed();
                         if (shouldPop && context.mounted) {
@@ -718,5 +999,77 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ),
       ),
     );
+  }
+}
+
+class AlignmentFramePainter extends CustomPainter {
+  final Rect rect;
+  final bool isAligned;
+
+  AlignmentFramePainter({required this.rect, required this.isAligned});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 1. Vẽ lớp phủ mờ tối màu xung quanh khung chữ nhật cắt (Cutout)
+    final backgroundPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.65)
+      ..style = PaintingStyle.fill;
+
+    final path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    // Tạo cutout bằng cách trừ đi hình chữ nhật bo góc ở giữa
+    final RRect rrect = RRect.fromRectAndRadius(rect, const Radius.circular(20));
+    final cutoutPath = Path()..addRRect(rrect);
+    
+    // Sử dụng Path.combine với Operation.difference
+    final finalPath = Path.combine(PathOperation.difference, path, cutoutPath);
+    canvas.drawPath(finalPath, backgroundPaint);
+
+    // 2. Vẽ viền bo góc phát sáng của khung chữ nhật
+    final borderPaint = Paint()
+      ..color = isAligned ? AppTheme.neonGreen : Colors.orangeAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5;
+
+    // Hiệu ứng phát sáng neon bằng mặt nạ mờ (MaskFilter)
+    final glowPaint = Paint()
+      ..color = (isAligned ? AppTheme.neonGreen : Colors.orangeAccent).withValues(alpha: 0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10.0
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+
+    canvas.drawRRect(rrect, glowPaint);
+    canvas.drawRRect(rrect, borderPaint);
+
+    // 3. Vẽ 4 góc nhọn (Corner brackets) để tạo cảm giác công nghệ AI
+    final bracketPaint = Paint()
+      ..color = isAligned ? AppTheme.neonGreen : Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5.0
+      ..strokeCap = StrokeCap.round;
+
+    const double length = 25.0; // chiều dài góc vuông
+    
+    // Góc trên bên trái
+    canvas.drawLine(Offset(rect.left, rect.top + length), Offset(rect.left, rect.top), bracketPaint);
+    canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left + length, rect.top), bracketPaint);
+
+    // Góc trên bên phải
+    canvas.drawLine(Offset(rect.right, rect.top + length), Offset(rect.right, rect.top), bracketPaint);
+    canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right - length, rect.top), bracketPaint);
+
+    // Góc dưới bên trái
+    canvas.drawLine(Offset(rect.left, rect.bottom - length), Offset(rect.left, rect.bottom), bracketPaint);
+    canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left + length, rect.bottom), bracketPaint);
+
+    // Góc dưới bên phải
+    canvas.drawLine(Offset(rect.right, rect.bottom - length), Offset(rect.right, rect.bottom), bracketPaint);
+    canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right - length, rect.bottom), bracketPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant AlignmentFramePainter oldDelegate) {
+    return oldDelegate.rect != rect || oldDelegate.isAligned != isAligned;
   }
 }
