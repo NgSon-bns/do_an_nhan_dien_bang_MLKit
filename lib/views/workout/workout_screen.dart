@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
@@ -45,10 +45,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _isProcessing = false;
   bool _isPoseDetected = false;
   bool _isFullBodyVisible = false;
-  double _hipMovementSpeed = 0.0;
-  double _prevHipX = 0.0;
-  double _prevHipY = 0.0;
-  bool _isBodyStill = false;
 
   // Đối tượng lưu trữ trạng thái buổi tập
   final WorkoutSession _session = WorkoutSession();
@@ -68,7 +64,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _wasPostureCorrectLastFrame = true;
 
   // Trạng thái căn chỉnh tư thế & góc camera trước khi tập
-  late CameraAngle _targetAngle;
   bool _isWorkoutStarted = false;
   bool _isAligned = false;
   int _countdownSeconds = -1;
@@ -81,20 +76,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   void initState() {
     super.initState();
+    // Cho phép cả xoay dọc và xoay ngang khi tập luyện
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _poseDetectorService = PoseDetectorService();
     _poseDetectorService.initialize();
     _evaluator = EvaluatorFactory.create(widget.exercise.type);
     _setPlan = widget.noSplit
         ? [widget.targetCount]
         : ExerciseDetail.computeSetPlan(widget.targetCount);
-
-    // Đặt góc camera đích mặc định tùy theo bài tập
-    if (widget.exercise.type == ExerciseType.squat ||
-        widget.exercise.type == ExerciseType.jumpingJack) {
-      _targetAngle = CameraAngle.front;
-    } else {
-      _targetAngle = CameraAngle.side;
-    }
 
     _session.feedbackMessage = _alignmentFeedback;
 
@@ -154,9 +147,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       setState(() {
         _session.elapsedSeconds++;
 
-        // Dành riêng cho Plank: Chỉ tích lũy giây tập khi đúng tư thế, thấy toàn thân và nằm yên tĩnh
+        // Dành riêng cho Plank: Chỉ tích lũy giây tập khi đúng tư thế và thấy toàn thân
         if (widget.exercise.type == ExerciseType.plank) {
-          if (_isPoseDetected && _session.isPostureCorrect && _isFullBodyVisible && _isBodyStill) {
+          if (_isPoseDetected && _session.isPostureCorrect && _isFullBodyVisible) {
             _session.activeHoldSeconds++;
           }
         }
@@ -269,14 +262,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _consecutiveAlignedFrames = 0;
         _cancelCountdown();
       }
-      _prevHipX = 0.0;
-      _prevHipY = 0.0;
-      _hipMovementSpeed = 0.0;
       if (mounted) {
         setState(() {
           _isPoseDetected = false;
           _isFullBodyVisible = false;
-          _isBodyStill = false;
           _isAligned = false;
           _session.isPostureCorrect = true;
           _session.feedbackMessage = 'Hãy quay trở lại khung hình!';
@@ -338,7 +327,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           final alignmentResult = AlignmentHelper.checkAlignment(
             pose: pose,
             exerciseType: widget.exercise.type,
-            targetAngle: _targetAngle,
             screenSize: MediaQuery.of(context).size,
             imageSize: Size(image.width.toDouble(), image.height.toDouble()),
             rotation: rotation,
@@ -365,35 +353,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           }
         } else {
           // Giai đoạn tập luyện bình thường
-          // Tính toán tốc độ di chuyển để xác nhận trạng thái "nằm yên" (dành cho Plank)
-          final shoulder = pose.landmarks[PoseLandmarkType.rightShoulder] ?? pose.landmarks[PoseLandmarkType.leftShoulder];
-          final hip = pose.landmarks[PoseLandmarkType.rightHip] ?? pose.landmarks[PoseLandmarkType.leftHip];
-          if (shoulder != null && hip != null) {
-            double torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
-            if (torsoLength > 0) {
-              if (_prevHipX != 0.0 && _prevHipY != 0.0) {
-                double dx = hip.x - _prevHipX;
-                double dy = hip.y - _prevHipY;
-                double displacement = math.sqrt(dx * dx + dy * dy);
-                double normalizedDisplacement = displacement / torsoLength;
-                
-                _hipMovementSpeed = _hipMovementSpeed * 0.85 + normalizedDisplacement * 0.15;
-                _isBodyStill = _hipMovementSpeed < 0.035;
-              } else {
-                _isBodyStill = false;
-              }
-              _prevHipX = hip.x;
-              _prevHipY = hip.y;
-            }
-          }
-
           // Kiểm tra xem camera có nhìn rõ toàn bộ cơ thể để phân tích không
           if (_checkFullBodyVisibility(pose, widget.exercise.type)) {
             _isFullBodyVisible = true;
             _analyzePose(pose);
           } else {
             _isFullBodyVisible = false;
-            _isBodyStill = false;
             if (mounted) {
               setState(() {
                 _session.isPostureCorrect = true;
@@ -578,6 +543,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   void dispose() {
+    // Khóa lại màn hình dọc mặc định cho toàn bộ các màn hình khác của ứng dụng khi thoát
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
     _countdownTimer?.cancel();
     _workoutTimer?.cancel();
     _cameraController.dispose();
@@ -636,112 +605,134 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     bool? result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.cardBackground,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Center(
-          child: Text(
-            'Kết quả tập luyện'.toUpperCase(),
-            style: const TextStyle(
-              color: AppTheme.neonGreen,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              letterSpacing: 1.0,
-            ),
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Divider(color: Colors.white12),
-            const SizedBox(height: 16),
+      builder: (context) {
+        final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+        final spacing = isLandscape ? 8.0 : 16.0;
 
-            Text(
-              '$scoreValue $scoreUnit',
-              style: const TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
+        return AlertDialog(
+          backgroundColor: AppTheme.cardBackground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: isLandscape ? 8 : 20,
+          ),
+          title: Padding(
+            padding: EdgeInsets.only(top: isLandscape ? 4 : 8),
+            child: Center(
+              child: Text(
+                'Kết quả tập luyện'.toUpperCase(),
+                style: TextStyle(
+                  color: AppTheme.neonGreen,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isLandscape ? 14 : 16,
+                  letterSpacing: 1.0,
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _buildDialogStatItem(
-                  Icons.local_fire_department,
-                  'Calo',
-                  '${_session.caloriesBurned.toStringAsFixed(1)} kcal',
-                  Colors.orange,
+                const Divider(color: Colors.white12),
+                SizedBox(height: spacing),
+
+                Text(
+                  '$scoreValue $scoreUnit',
+                  style: TextStyle(
+                    fontSize: isLandscape ? 28 : 36,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
                 ),
-                _buildDialogStatItem(
-                  Icons.access_time,
-                  'Thời gian',
-                  '${_session.elapsedSeconds}s',
-                  AppTheme.neonBlue,
+                SizedBox(height: spacing),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildDialogStatItem(
+                      Icons.local_fire_department,
+                      'Calo',
+                      '${_session.caloriesBurned.toStringAsFixed(1)} kcal',
+                      Colors.orange,
+                    ),
+                    _buildDialogStatItem(
+                      Icons.access_time,
+                      'Thời gian',
+                      '${_session.elapsedSeconds}s',
+                      AppTheme.neonBlue,
+                    ),
+                    _buildDialogStatItem(
+                      Icons.warning_amber_rounded,
+                      'Lỗi',
+                      '${_session.incorrectPostureCount}',
+                      AppTheme.errorRed,
+                    ),
+                  ],
                 ),
-                _buildDialogStatItem(
-                  Icons.warning_amber_rounded,
-                  'Lỗi',
-                  '${_session.incorrectPostureCount}',
-                  AppTheme.errorRed,
+                SizedBox(height: spacing),
+                const Divider(color: Colors.white12),
+                SizedBox(height: isLandscape ? 4 : 8),
+                Text(
+                  isOffline
+                      ? 'Ứng dụng chạy ở chế độ Offline. Kết quả sẽ không được lưu lên Cloud.'
+                      : 'Kết quả sẽ được đồng bộ trực tuyến lên tài khoản của bạn.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            const Divider(color: Colors.white12),
-            const SizedBox(height: 8),
-            Text(
-              isOffline
-                  ? 'Ứng dụng chạy ở chế độ Offline. Kết quả sẽ không được lưu lên Cloud.'
-                  : 'Kết quả sẽ được đồng bộ trực tuyến lên tài khoản của bạn.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-        actionsAlignment: MainAxisAlignment.spaceAround,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false), // Thoát không lưu
-            child: const Text(
-              'Thoát',
-              style: TextStyle(
-                color: AppTheme.errorRed,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
           ),
-          TextButton(
-            onPressed: () {
-              _startTimer(); // Chạy lại timer
-              Navigator.pop(context, null); // Hủy
-            },
-            child: const Text('Tập tiếp', style: TextStyle(color: Colors.grey)),
+          actionsPadding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: isLandscape ? 4 : 12,
           ),
-          if (!isOffline)
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true), // Lưu & Thoát
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.neonGreen,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+          actionsAlignment: MainAxisAlignment.spaceAround,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false), // Thoát không lưu
               child: const Text(
-                'Lưu & Thoát',
+                'Thoát',
                 style: TextStyle(
-                  color: Colors.black,
+                  color: AppTheme.errorRed,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-        ],
-      ),
+            TextButton(
+              onPressed: () {
+                _startTimer(); // Chạy lại timer
+                Navigator.pop(context, null); // Hủy
+              },
+              child: const Text('Tập tiếp', style: TextStyle(color: Colors.grey)),
+            ),
+            if (!isOffline)
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true), // Lưu & Thoát
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.neonGreen,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isLandscape ? 12 : 20,
+                    vertical: isLandscape ? 8 : 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'Lưu & Thoát',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
 
     if (result == null) {
@@ -837,7 +828,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       child: Builder(
                         builder: (context) {
                           final screenSize = MediaQuery.of(context).size;
-                          final isHorizontal = AlignmentHelper.isHorizontalLayout(widget.exercise.type, _targetAngle);
+                          final isHorizontal = AlignmentHelper.isHorizontalLayout(widget.exercise.type);
                           final double boxWidth;
                           final double boxHeight;
                           final double boxLeft;
@@ -863,78 +854,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                             ),
                           );
                         },
-                      ),
-                    ),
-
-                  // 4. Thanh chọn góc camera ở phía trên (khi chưa tập)
-                  if (!_isWorkoutStarted)
-                    Positioned(
-                      top: MediaQuery.of(context).padding.top + 70,
-                      left: 16,
-                      right: 16,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.75),
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: Colors.white10),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'CHỌN GÓC CAMERA ĐẶT MÁY',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: CameraAngle.values.map((angle) {
-                                  final isSelected = _targetAngle == angle;
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                    child: ChoiceChip(
-                                      label: Text(
-                                        AlignmentHelper.getAngleName(angle),
-                                        style: TextStyle(
-                                          color: isSelected ? Colors.black : Colors.white,
-                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                      selected: isSelected,
-                                      selectedColor: AppTheme.neonGreen,
-                                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                                      onSelected: (selected) {
-                                        if (selected) {
-                                          setState(() {
-                                            _targetAngle = angle;
-                                            _consecutiveAlignedFrames = 0;
-                                            _cancelCountdown();
-                                          });
-                                        }
-                                      },
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ),
 

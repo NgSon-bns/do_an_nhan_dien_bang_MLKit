@@ -99,7 +99,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
           : leftShoulder!.y;
     }
 
-    // 3. Phân tích tư thế lưng
+    // 3. Phân tích tư thế lưng (Shoulder - Hip - Knee)
     double backAngle = (rightShoulder!.x > rightHip!.x)
         ? PoseMath.calculateAngle(
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
@@ -111,23 +111,22 @@ class PushUpEvaluator extends BasePoseEvaluator {
             (_isRightSideVisible ? rightHip! : leftHip!),
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
           );
-    if (backAngle < 160 || backAngle > 195) {
-      isPostureCorrect = false;
-      feedback = 'Giữ vai hông và chân thẳng hàng!';
-      print('Back Angle: $backAngle $_isRightSideVisible');
-    } else {
-      isBackCorrect = true;
-    }
+
+    // Tăng nhẹ dung sai góc thẳng hàng để tránh báo lỗi nhạy cảm do nhiễu camera (từ 160->152, 195->200)
+    bool isBackAligned = (backAngle >= 152 && backAngle <= 200);
 
     // 4. Lọc nhiễu tư thế
-    if (!isPostureCorrect) {
+    if (!isBackAligned) {
       _errorFrames++;
-      if (_errorFrames > 3) {
+      if (_errorFrames > 8) { // Cần sai tư thế liên tục > 8 frame (~0.3s) mới báo lỗi đỏ
+        isPostureCorrect = false;
+        feedback = 'Giữ vai hông và chân thẳng hàng!';
         _isPostureCorrectInCurrentRep = false;
         isBackCorrect = false;
       }
     } else {
       _errorFrames = 0;
+      isBackCorrect = true;
     }
 
     // Khi kiểm tra độ sâu, so sánh với mốc của ĐÚNG BÊN ĐÓ

@@ -93,9 +93,8 @@ class AlignmentHelper {
   }
 
   /// Xác định xem bài tập này dùng khung đứng hay khung ngang
-  static bool isHorizontalLayout(ExerciseType exerciseType, CameraAngle targetAngle) {
+  static bool isHorizontalLayout(ExerciseType exerciseType) {
     // Plank và Push-Up là các bài nằm ngang trên sàn nhà
-    // Nếu góc camera là ngang thân hoặc xéo thì chắc chắn người dùng nằm ngang
     if (exerciseType == ExerciseType.plank || exerciseType == ExerciseType.pushUp) {
       return true;
     }
@@ -130,11 +129,10 @@ class AlignmentHelper {
     return Offset(translatedX, translatedY);
   }
 
-  /// Kiểm tra xem người dùng đã đứng đúng khung hình và góc quay hay chưa (Dung sai cao)
+  /// Kiểm tra xem người dùng đã đứng đúng khung hình hay chưa (Dung sai cao)
   static AlignmentResult checkAlignment({
     required Pose pose,
     required ExerciseType exerciseType,
-    required CameraAngle targetAngle,
     required Size screenSize,
     required Size imageSize,
     required InputImageRotation rotation,
@@ -143,20 +141,8 @@ class AlignmentHelper {
     final yaw = estimateBodyYaw(pose);
     final currentAngle = getCameraAngle(yaw);
 
-    // 1. Kiểm tra góc camera
-    bool isAngleCorrect = false;
-    if (targetAngle == CameraAngle.front) {
-      isAngleCorrect = yaw.abs() <= 28.0; // Cho thêm dung sai từ 25 lên 28 độ
-    } else if (targetAngle == CameraAngle.diagonalLeft) {
-      isAngleCorrect = yaw > 18.0 && yaw < 72.0; // Dung sai rộng từ 18 đến 72 độ
-    } else if (targetAngle == CameraAngle.diagonalRight) {
-      isAngleCorrect = yaw > -72.0 && yaw < -18.0; // Dung sai rộng
-    } else if (targetAngle == CameraAngle.side) {
-      isAngleCorrect = yaw.abs() >= 62.0; // Dung sai rộng từ 65 xuống 62 độ
-    }
-
-    // 2. Tính toán khung chữ nhật chỉ định trên màn hình
-    final isHorizontal = isHorizontalLayout(exerciseType, targetAngle);
+    // 1. Tính toán khung chữ nhật chỉ định trên màn hình
+    final isHorizontal = isHorizontalLayout(exerciseType);
     final double boxWidth;
     final double boxHeight;
     final double boxLeft;
@@ -188,7 +174,7 @@ class AlignmentHelper {
       frameRect.bottom + toleranceY,
     );
 
-    // 3. Kiểm tra xem các khớp có nằm trong khung hay không
+    // 2. Kiểm tra xem các khớp có nằm trong khung hay không
     bool isBodyInFrame = false;
     const double minLikelihood = 0.45; // Ngưỡng tin cậy thấp để dễ nhận diện
 
@@ -217,7 +203,6 @@ class AlignmentHelper {
 
     if (isHorizontal) {
       // Đối với bài nằm ngang (Plank, Push-up), chỉ cần một trong hai bên cơ thể hiển thị và lọt vào khung
-
       // Sửa lỗi cúi/nằm
       final leftShoulderVisible = isVisible(PoseLandmarkType.leftShoulder);
       final leftHipVisible = isVisible(PoseLandmarkType.leftHip);
@@ -262,7 +247,7 @@ class AlignmentHelper {
       }
     }
 
-    // 4. Sinh phản hồi tiếng Việt cụ thể và thân thiện
+    // 3. Sinh phản hồi tiếng Việt cụ thể và thân thiện
     String feedback = '';
     if (!isBodyInFrame) {
       if (isHorizontal) {
@@ -283,32 +268,17 @@ class AlignmentHelper {
           feedback = 'Hãy đứng lùi lại và di chuyển vào trong khung hình.';
         }
       }
-    } else if (!isAngleCorrect) {
-      switch (targetAngle) {
-        case CameraAngle.front:
-          feedback = 'Hãy xoay người đứng thẳng đối diện camera.';
-          break;
-        case CameraAngle.diagonalLeft:
-          feedback = 'Hãy xoay người sang bên trái khoảng 45 độ.';
-          break;
-        case CameraAngle.diagonalRight:
-          feedback = 'Hãy xoay người sang bên phải khoảng 45 độ.';
-          break;
-        case CameraAngle.side:
-          feedback = 'Hãy xoay người đứng ngang so với camera.';
-          break;
-      }
     } else {
-      feedback = 'Tư thế tốt! Giữ nguyên vị trí để bắt đầu...';
+      feedback = 'Đã nhận diện: ${getAngleName(currentAngle)}. Giữ nguyên vị trí...';
     }
 
     return AlignmentResult(
-      isAligned: isBodyInFrame && isAngleCorrect,
+      isAligned: isBodyInFrame,
       currentAngle: currentAngle,
       currentYaw: yaw,
       feedbackMessage: feedback,
       isBodyInFrame: isBodyInFrame,
-      isAngleCorrect: isAngleCorrect,
+      isAngleCorrect: true,
     );
   }
 }

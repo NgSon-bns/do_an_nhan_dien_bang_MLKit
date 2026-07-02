@@ -224,6 +224,234 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
         break;
     }
 
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+
+    if (isLandscape) {
+      return Stack(
+        children: [
+          // 1. THANH ĐIỀU HƯỚNG PHÍA TRÊN BÊN TRÁI
+          Positioned(
+            top: 12,
+            left: 16,
+            right: 272,
+            child: Row(
+              children: [
+                _buildIconButton(Icons.arrow_back, widget.onBackPressed),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: AppTheme.glassDecoration(
+                      color: Colors.black,
+                      borderRadius: 12,
+                    ),
+                    child: Text(
+                      widget.exercise.name.toUpperCase(),
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.neonGreen,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. KHUNG CHỈ SỐ BÊN PHẢI (Stats Panel)
+          Positioned(
+            top: 12,
+            bottom: 12,
+            right: 16,
+            width: 240,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: AppTheme.glassDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: 20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header của bảng chỉ số
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'TRẠNG THÁI',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            _buildMiniIconButton(Icons.flip_camera_ios, widget.onToggleCameraPressed),
+                            const SizedBox(width: 4),
+                            _buildMiniIconButton(Icons.refresh, widget.onResetPressed),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 16),
+
+                    if (widget.isWorkoutStarted) ...[
+                      // Đã bắt đầu tập -> Hiện chỉ số
+                      Text(
+                        isDuration ? 'THỜI GIAN GIỮ' : 'SỐ LẦN ĐÃ TẬP',
+                        style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            isDuration ? '${widget.session.activeHoldSeconds}' : '${widget.session.counter}',
+                            style: TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.neonGreen,
+                              height: 1.0,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isDuration ? 'giây' : 'lần',
+                            style: const TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                      const Divider(color: Colors.white12, height: 20),
+
+                      // Thông tin mục tiêu
+                      if (!isDuration) ...[
+                        _buildTargetInfo(widget.targetCount),
+                        const Divider(color: Colors.white12, height: 20),
+                      ],
+
+                      // Calories & Time
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Thời gian:', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          Text(_formatDuration(widget.session.elapsedSeconds), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Năng lượng:', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          Text('${widget.session.caloriesBurned.toStringAsFixed(1)} kcal', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ] else ...[
+                      // Chưa bắt đầu tập -> Hiện hướng dẫn căn chỉnh
+                      const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: AppTheme.neonGreen, size: 16),
+                          SizedBox(width: 6),
+                          Text(
+                            'HƯỚNG DẪN BẮT ĐẦU',
+                            style: TextStyle(
+                              color: AppTheme.neonGreen,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Vui lòng đứng vào khung chữ nhật trên màn hình. AI sẽ tự động nhận diện góc đứng và kích hoạt đếm ngược.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // 3. KHUNG CẢNH BÁO PHẢN HỒI (Bottom Left)
+          if (widget.session.feedbackMessage.isNotEmpty)
+            Positioned(
+              bottom: 12,
+              left: 16,
+              right: 272,
+              child: AnimatedBuilder(
+                animation: _shakeController,
+                builder: (context, child) => Transform.translate(
+                  offset: _getShakeOffset(_shakeController.value),
+                  child: child,
+                ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: AppTheme.glassDecoration(
+                    color: cardColor,
+                    borderRadius: 16,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(cardIcon, color: textColor, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.session.feedbackMessage,
+                          style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                      if (widget.session.isResting && widget.onSkipRestPressed != null) ...[
+                        const SizedBox(width: 10),
+                        TextButton(
+                          onPressed: widget.onSkipRestPressed,
+                          style: TextButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'BỎ QUA',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+
     return Stack(
       children: [
         // 1. THANH ĐIỀU HƯỚNG
@@ -281,7 +509,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: AppTheme.glassDecoration(
-                color: Colors.black.withValues(alpha: 0.8),
+                color: Colors.black.withValues(alpha: 0.85),
                 borderRadius: 16,
               ),
               child: Row(
@@ -307,7 +535,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
           )
         else
           Positioned(
-            top: 175, // Tránh đè lên thanh chọn góc camera
+            top: 110,
             left: 20,
             right: 20,
             child: Container(
@@ -350,7 +578,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             ),
           ),
 
-        // 3. KHUNG CẢNH BÁO (Tối ưu với AnimatedBuilder và AnimatedContainer)
+        // 3. KHUNG CẢNH BÁO
         if (widget.session.feedbackMessage.isNotEmpty)
           Positioned(
             bottom: 40,
@@ -358,59 +586,59 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             right: 20,
             child: AnimatedBuilder(
               animation: _shakeController,
-            builder: (context, child) => Transform.translate(
-              offset: _getShakeOffset(_shakeController.value),
-              child: child,
-            ),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.all(16),
-              decoration: AppTheme.glassDecoration(
-                color: cardColor,
-                borderRadius: 20,
+              builder: (context, child) => Transform.translate(
+                offset: _getShakeOffset(_shakeController.value),
+                child: child,
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    cardIcon,
-                    color: textColor,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      widget.session.feedbackMessage,
-                      style: TextStyle(
-                        color: textColor,
-                        fontWeight: FontWeight.bold,
-                      ),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.all(16),
+                decoration: AppTheme.glassDecoration(
+                  color: cardColor,
+                  borderRadius: 20,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      cardIcon,
+                      color: textColor,
                     ),
-                  ),
-                  if (widget.session.isResting && widget.onSkipRestPressed != null) ...[
-                    const SizedBox(width: 12),
-                    TextButton(
-                      onPressed: widget.onSkipRestPressed,
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'BỎ QUA',
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        widget.session.feedbackMessage,
                         style: TextStyle(
-                          color: Colors.black,
+                          color: textColor,
                           fontWeight: FontWeight.bold,
-                          fontSize: 12,
                         ),
                       ),
                     ),
+                    if (widget.session.isResting && widget.onSkipRestPressed != null) ...[
+                      const SizedBox(width: 12),
+                      TextButton(
+                        onPressed: widget.onSkipRestPressed,
+                        style: TextButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'BỎ QUA',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -425,6 +653,19 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
         borderRadius: 12,
       ),
       child: Icon(icon, color: Colors.white, size: 20),
+    ),
+  );
+
+  Widget _buildMiniIconButton(IconData icon, VoidCallback onTap) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Icon(icon, color: Colors.white, size: 14),
     ),
   );
 

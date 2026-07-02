@@ -84,18 +84,18 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
     // Logic máy trạng thái (State Machine)
     switch (_currentState) {
       case LungeState.stand:
-        // Đang đứng thẳng, chuyển sang gập gối bước tấn (cả hai gối cùng gập sâu dưới 100 độ)
-        if (leftKneeAngle < 100 && rightKneeAngle < 100) {
+        // Đang đứng thẳng, chuyển sang gập gối bước tấn (cả hai gối cùng gập sâu dưới 110 độ)
+        if (leftKneeAngle < 110 && rightKneeAngle < 110) {
           _currentState = LungeState.lunge;
           feedback = "Tấn tốt! Hãy đẩy gót chân đứng lên.";
         } else {
-          feedback = "Hãy bước dài lên và hạ thấp hông xuống (góc hai gối < 100°).";
+          feedback = "Hãy bước dài lên và hạ thấp hông xuống (góc hai gối < 110°).";
         }
         break;
 
       case LungeState.lunge:
-        // Đang tấn sâu, đứng thẳng dậy hoàn toàn (cả hai gối mở rộng trên 160 độ)
-        if (leftKneeAngle > 160 && rightKneeAngle > 160) {
+        // Đang tấn sâu, đứng thẳng dậy hoàn toàn (cả hai gối mở rộng trên 150 độ)
+        if (leftKneeAngle > 150 && rightKneeAngle > 150) {
           _currentState = LungeState.stand;
           if (_isPostureCorrectInCurrentRep) {
             _reps++;

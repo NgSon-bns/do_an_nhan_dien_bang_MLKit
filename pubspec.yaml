@@ -38,6 +38,7 @@ dependencies:
   google_mlkit_pose_detection: ^0.12.0
   supabase_flutter: ^2.14.1
   flutter_tts: ^4.2.5
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
