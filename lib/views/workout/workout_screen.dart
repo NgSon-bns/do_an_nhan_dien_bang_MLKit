@@ -108,6 +108,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _initializeCamera() async {
+    if (!mounted) return;
+
     setState(() {
       _isCameraInitialized = false;
     });
@@ -125,19 +127,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       await _cameraController.initialize();
       if (!mounted) return;
 
-      await _startCameraStream();
-
       setState(() {
         _isCameraInitialized = true;
       });
+
+      await _startCameraStream();
     } catch (e) {
       debugPrint('Lỗi khởi tạo camera: $e');
     }
   }
 
   Future<void> _startCameraStream() async {
-    if (!_isCameraInitialized || _cameraController.value.isStreamingImages)
-      return;
+    if (!mounted || !_cameraController.value.isInitialized) return;
+    if (_cameraController.value.isStreamingImages) return;
 
     await _cameraController.startImageStream((cameraImage) {
       if (!_isProcessing && mounted) {
@@ -148,8 +150,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _stopCameraStream() async {
-    if (!_isCameraInitialized || !_cameraController.value.isStreamingImages)
+    if (!_cameraController.value.isInitialized ||
+        !_cameraController.value.isStreamingImages) {
       return;
+    }
+
     await _cameraController.stopImageStream();
   }
 
@@ -205,18 +210,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   /// Đảo camera trước/sau
   Future<void> _toggleCamera() async {
     if (widget.cameras.length < 2) return;
+
     setState(() {
       _isCameraInitialized = false;
     });
-    // Đóng camera hiện tại// Thay thế dòng 212 bằng đoạn kiểm tra an toàn này:
-    if (_cameraController != null && _cameraController!.value.isStreamingImages) {
-      await _cameraController!.stopImageStream();
+
+    if (_cameraController.value.isInitialized) {
+      if (_cameraController.value.isStreamingImages) {
+        await _cameraController.stopImageStream();
+      }
+      await _cameraController.dispose();
     }
 
-    await _cameraController.dispose();
-
     _currentCameraIndex = (_currentCameraIndex + 1) % widget.cameras.length;
-    _initializeCamera();
+    await _initializeCamera();
   }
 
   /// Reset bộ đếm lần tập và thời gian
@@ -922,17 +929,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
           actionsAlignment: MainAxisAlignment.spaceAround,
           actions: [
-             if (!_isWorkoutComplete)
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text(
-                'Thoát',
-                style: TextStyle(
-                  color: AppTheme.errorRed,
-                  fontWeight: FontWeight.bold,
+            if (!_isWorkoutComplete)
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text(
+                  'Thoát',
+                  style: TextStyle(
+                    color: AppTheme.errorRed,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
 
             // Nút "Tập tiếp" chỉ hiện nếu CHƯA hoàn thành
             if (!_isWorkoutComplete)
