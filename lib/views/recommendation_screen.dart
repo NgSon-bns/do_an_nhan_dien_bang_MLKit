@@ -26,6 +26,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   bool _isLoading = true;
   String _selectedGoal = 'maintain'; // 'lose', 'maintain', 'build'
   int _selectedDayIndex = 0; // Chọn ngày trong lịch trình giảm cân (0 - 6)
+  final Map<ExerciseType, bool> _noSplitTargets = {};
 
   @override
   void initState() {
@@ -248,50 +249,81 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
   // Thuật toán tính mục tiêu reps/seconds dựa trên TDEE & Mifflin-St Jeor theo chuẩn khoa học thể thao
   Map<ExerciseType, int> _calculateScientificReps(double weight, double height, int age, String goal) {
-    double bmr = (10 * weight) + (6.25 * height) - (5 * age) - 78;
-    if (bmr < 1000) bmr = 1300; 
+      // 1. Tính BMR & TDEE (Sửa lỗi nhảy vọt bằng .clamp tối thiểu hợp lý)
+      double bmr = (10 * weight) + (6.25 * height) - (5 * age) - 78;
+      if (bmr < 1000) bmr = 1000; 
 
-    double tdee = bmr * 1.375;
+      double tdee = bmr * 1.375;
 
-    double targetWorkoutCalories = 0.0;
-    if (goal == 'lose') {
-      targetWorkoutCalories = tdee * 0.10; 
-    } else if (goal == 'build') {
-      targetWorkoutCalories = tdee * 0.08; 
-    } else {
-      targetWorkoutCalories = tdee * 0.06; 
-    }
-
-    if (targetWorkoutCalories < 80) targetWorkoutCalories = 80;
-    if (targetWorkoutCalories > 350) targetWorkoutCalories = 350;
-
-    final double caloriesPerExercise = targetWorkoutCalories / 4;
-
-    final Map<ExerciseType, int> computedTargets = {};
-
-    for (final exercise in ExerciseDetail.defaultExercises) {
-      double cpm = exercise.caloriesPerMin;
-      if (exercise.isDurationBased) {
-        double sec = (caloriesPerExercise * 60) / cpm;
-        int roundedSec = ((sec / 10).round() * 10).clamp(20, 120);
-        computedTargets[exercise.type] = roundedSec;
+      // 2. Tính tổng calo cho buổi tập dựa trên mục tiêu
+      double targetWorkoutCalories = 0.0;
+      if (goal == 'lose') {
+        targetWorkoutCalories = tdee * 0.10; 
+      } else if (goal == 'build') {
+        targetWorkoutCalories = tdee * 0.08; 
       } else {
-        double reps = caloriesPerExercise / (cpm * 0.05);
-        int roundedReps = ((reps / 5).round() * 5);
-
-        if (exercise.type == ExerciseType.burpee) {
-          roundedReps = roundedReps.clamp(5, 20); 
-        } else if (exercise.type == ExerciseType.pushUp) {
-          roundedReps = roundedReps.clamp(8, 30);
-        } else {
-          roundedReps = roundedReps.clamp(10, 45); 
-        }
-        computedTargets[exercise.type] = roundedReps;
+        targetWorkoutCalories = tdee * 0.06; 
       }
+
+      // Giới hạn an toàn cho 1 buổi tập home workout
+      targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
+
+      // Chia đều cho 4 bài tập
+      final double caloriesPerExercise = targetWorkoutCalories / 4;
+      final Map<ExerciseType, int> computedTargets = {};
+
+      // Tỉ lệ cân nặng để cá nhân hóa lượng calo tiêu thụ
+      double weightFactor = weight / 70.0; 
+
+      for (final exercise in ExerciseDetail.defaultExercises) {
+        if (exercise.isDurationBased) {
+          // --- BÀI TẬP TÍNH THEO GIÂY (Plank, Jumping Jacks...) ---
+          // Giả sử cpm là calo tiêu thụ mỗi phút của người 70kg
+          double personalizedCpm = exercise.caloriesPerMin * weightFactor;
+          double sec = (caloriesPerExercise * 60) / (personalizedCpm > 0 ? personalizedCpm : 1); // Tránh chia cho 0
+
+          // Làm tròn đến hàng chục và nới rộng clamp (30s - 240s) để thấy sự khác biệt thể trạng
+          int roundedSec = ((sec / 10).round() * 10).clamp(30, 240);
+          computedTargets[exercise.type] = roundedSec;
+        } else {
+          // --- BÀI TẬP TÍNH THEO REP (Push-up, Squat, Burpee...) ---
+          // Lấy chỉ số calo thực tế trên 1 rep của từng bài (Dựa trên người 70kg)
+          double caloriesPerRep = _getCaloPerRep(exercise.type) * weightFactor;
+          
+          double reps = caloriesPerExercise / (caloriesPerRep > 0 ? caloriesPerRep : 1); // Tránh chia cho 0
+          // Làm tròn đến số chia hết cho 2 hoặc 5 (ở đây giữ nguyên chia hết cho 5 của bạn)
+          int roundedReps = ((reps / 5).round() * 5) ;
+
+          // Nới rộng khoảng clamp để phân biệt rõ người khỏe/yếu, nặng/nhẹ cân
+          if (exercise.type == ExerciseType.burpee) {
+            roundedReps = roundedReps.clamp(8, 30); 
+          } else if (exercise.type == ExerciseType.pushUp) {
+            roundedReps = roundedReps.clamp(10, 40);
+          } else if (exercise.type == ExerciseType.squat) {
+            roundedReps = roundedReps.clamp(12, 40);
+          } else if (exercise.type == ExerciseType.walkingLunge) {
+            roundedReps = roundedReps.clamp(10, 40);
+          } else {
+            roundedReps = roundedReps.clamp(12, 60); 
+          }
+          computedTargets[exercise.type] = roundedReps;
+        }
+      }
+
+      return computedTargets;
     }
 
-    return computedTargets;
-  }
+    // Hàm bổ trợ lấy Calo chuẩn trên 1 Rep của người 70kg
+    double _getCaloPerRep(ExerciseType type) => switch (type) {
+      ExerciseType.burpee => 0.8,       // Rất nặng, tốn nhiều năng lượng
+      ExerciseType.pushUp => 0.35,      // Trung bình (8.5 cpm / 24 reps)
+      ExerciseType.walkingLunge => 0.4, // Trọng lượng dồn 1 chân (8.0 cpm / 20 reps)
+      ExerciseType.squat => 0.35,       // Nhóm cơ lớn (7.0 cpm / 20 reps)
+      ExerciseType.jumpingJack => 0.25, // Động tác nhanh, calo mỗi cái thấp (10.0 cpm / 40 reps)
+      ExerciseType.plank => 0.0,        // Bài tập giữ trạng thái (tính theo giây, không tính rep)
+    };
+
+
 
   // A. ĐỀ XUẤT BÀI TẬP ĐỘNG THEO THỂ TRẠNG (BMI & TUỔI)
   List<Map<String, dynamic>> _generateAdaptiveDailyExercises(double bmi, int age, String goal) {
@@ -635,7 +667,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${_height.toStringAsFixed(0)} cm  /  ${_weight.toStringAsFixed(0)} kg  /  $_age tuổi',
+                                          '${_height.toStringAsFixed(0)} cm/ ${_weight.toStringAsFixed(0)} kg/ $_age tuổi',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontSize: 18,
@@ -989,6 +1021,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   ) {
     final ExerciseType type = rec['type'] as ExerciseType;
     final String reason = rec['reason'] as String;
+    final bool isNoSplit = _noSplitTargets[type] ?? false;
 
     final originalExercise = ExerciseDetail.defaultExercises.firstWhere(
       (e) => e.type == type,
@@ -1057,6 +1090,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               height: 1.4,
             ),
           ),
+          const SizedBox(height: 10),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text(
+              'Tập liên tục (không chia hiệp)',
+              style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              'Bỏ qua đếm ngược và chia chặng nghỉ giữa giờ.',
+              style: TextStyle(color: Colors.grey, fontSize: 10.5),
+            ),
+            value: isNoSplit,
+            activeThumbColor: AppTheme.neonGreen,
+            onChanged: (val) {
+              setState(() {
+                _noSplitTargets[type] = val;
+              });
+            },
+          ),
           const Divider(color: Colors.white10, height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1075,7 +1128,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                         exercise: originalExercise,
                         cameras: widget.cameras,
                         targetCount: target,
-                        noSplit: true,
+                        noSplit: isNoSplit,
                       ),
                     ),
                   );

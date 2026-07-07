@@ -92,7 +92,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${result['message']} (Chuỗi: ${result['streak']} ngày 🔥)',
+                    '${result['message']} (Chuỗi: ${result['streak']})',
                     style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -555,7 +555,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  'Chuỗi: $_checkInStreak ngày 🔥',
+                                  'Chuỗi: $_checkInStreak',
                                   style: const TextStyle(
                                     color: AppTheme.neonGreen,
                                     fontWeight: FontWeight.bold,
