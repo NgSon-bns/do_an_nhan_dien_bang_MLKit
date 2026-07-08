@@ -197,7 +197,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   bool _isExerciseCompletedForDay(
     ExerciseType type,
     DateTime day,
-    int targetCount,
+   
   ) {
     final dayKey = _getDayKey(day);
     final completionKeys =
@@ -208,10 +208,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       if (parts.length < 3) return false;
 
       final keyType = _exerciseTypeFromName(parts[0]);
-      final keyRepsCount = int.tryParse(parts[1]) ?? 0;
+      
       final isRecommended = parts[2].toLowerCase() == 'recommended';
 
-      return isRecommended && keyType == type && keyRepsCount >= targetCount;
+      return isRecommended && keyType == type ;
     });
   }
 
@@ -1440,7 +1440,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final bool isCompletedForDay = _isExerciseCompletedForDay(
       type,
       selectedDayDate,
-      target,
+      
     );
 
     final originalExercise = ExerciseDetail.defaultExercises.firstWhere(
