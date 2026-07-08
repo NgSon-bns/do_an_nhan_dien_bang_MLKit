@@ -22,6 +22,7 @@ class WorkoutScreen extends StatefulWidget {
   final ExerciseDetail exercise;
   final int targetCount;
   final bool noSplit;
+  final String? sourceTag;
   final List<CameraDescription> cameras;
 
   const WorkoutScreen({
@@ -29,6 +30,7 @@ class WorkoutScreen extends StatefulWidget {
     required this.exercise,
     required this.targetCount,
     required this.noSplit,
+    this.sourceTag,
     required this.cameras,
   });
 
@@ -810,6 +812,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           durationSeconds: _session.elapsedSeconds,
           caloriesBurned: _session.caloriesBurned,
           incorrectPostures: _session.incorrectPostureCount,
+          sourceTag: widget.sourceTag,
         );
       } catch (e) {
         debugPrint('Lỗi lưu kết quả: $e');
@@ -1005,6 +1008,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           durationSeconds: _session.elapsedSeconds,
           caloriesBurned: _session.caloriesBurned,
           incorrectPostures: _session.incorrectPostureCount,
+          sourceTag: widget.sourceTag,
         );
       } catch (e) {
         debugPrint('Lỗi lưu kết quả: $e');
