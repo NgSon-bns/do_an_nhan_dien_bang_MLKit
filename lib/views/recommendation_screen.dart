@@ -21,6 +21,7 @@ class RecommendationScreen extends StatefulWidget {
 class _RecommendationScreenState extends State<RecommendationScreen> {
   final AuthService _authService = AuthService();
   final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
+  Map<String, dynamic>? _todayDraftWorkout;
 
   double _weight = 0.0;
   double _height = 0.0;
@@ -40,6 +41,16 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     _selectedDayIndex = DateTime.now().weekday - 1;
     _loadUserProfile();
     _loadCompletedExercisesForDay(_getSelectedDayDate(_selectedDayIndex));
+    _refreshTodayDraftWorkout();
+  }
+
+  Future<void> _refreshTodayDraftWorkout() async {
+    final draft = await _workoutDraftService.getTodayDraftWorkout();
+    if (mounted) {
+      setState(() {
+        _todayDraftWorkout = draft;
+      });
+    }
   }
 
   bool get _isSupabaseInitialized {
@@ -1705,66 +1716,87 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               ),
               if (allowWorkoutAction) ...[
                 const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final navigatorContext = context;
-                    _toggleExerciseCompletedForDay(
-                      type,
-                      selectedDayDate,
-                      currentTarget,
+                Builder(
+                  builder: (context) {
+                    final isDraftForThisExercise =
+                        _todayDraftWorkout != null &&
+                        _todayDraftWorkout!['exerciseType'] ==
+                            originalExercise.type.name &&
+                        ((_todayDraftWorkout!['sourceTag'] as String?) ?? '')
+                            .startsWith('recommended:');
+                    return ElevatedButton.icon(
+                      onPressed: () async {
+                        final navigatorContext = context;
+
+                        final finalTargetCount = isDraftForThisExercise
+                            ? (_todayDraftWorkout!['targetCount'] as num)
+                                  .toInt()
+                            : currentTarget;
+                        final finalNoSplit = isDraftForThisExercise
+                            ? (_todayDraftWorkout!['noSplit'] as bool? ?? false)
+                            : isNoSplit;
+                        final finalCompletedCount = isDraftForThisExercise
+                            ? (_todayDraftWorkout!['completedCount'] as num?)
+                                      ?.toInt() ??
+                                  0
+                            : 0;
+
+                        final result = navigatorContext.mounted
+                            ? await Navigator.push(
+                                navigatorContext,
+                                MaterialPageRoute(
+                                  builder: (context) => WorkoutScreen(
+                                    exercise: originalExercise,
+                                    cameras: widget.cameras,
+                                    targetCount: finalTargetCount,
+                                    noSplit: finalNoSplit,
+                                    sourceTag:
+                                        'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$finalTargetCount',
+                                    initialCompletedCount: finalCompletedCount,
+                                  ),
+                                ),
+                              )
+                            : null;
+
+                        await _refreshTodayDraftWorkout();
+                        if ((result == true || result == 'complete') &&
+                            mounted) {
+                          // Thực hiện cập nhật trạng thái UI cục bộ (nếu cần offline)
+                          _toggleExerciseCompletedForDay(
+                            type,
+                            selectedDayDate,
+                            finalTargetCount,
+                          );
+                          // Đồng thời tải lại dữ liệu chuẩn xác từ Database về
+                          await _loadCompletedExercisesForDay(selectedDayDate);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.neonGreen,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.play_arrow,
+                        color: Colors.black,
+                        size: 16,
+                      ),
+                      label: Text(
+                        isDraftForThisExercise ? 'TẬP TIẾP' : 'TẬP NGAY',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
                     );
-                    await _workoutDraftService.saveDraftWorkout(
-                      exerciseType: originalExercise.type.name,
-                      exerciseName: originalExercise.name,
-                      targetCount: currentTarget,
-                      noSplit: isNoSplit,
-                      sourceTag:
-                          'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$currentTarget',
-                    );
-                    final result = navigatorContext.mounted
-                        ? await Navigator.push(
-                            navigatorContext,
-                            MaterialPageRoute(
-                              builder: (context) => WorkoutScreen(
-                                exercise: originalExercise,
-                                cameras: widget.cameras,
-                                targetCount: currentTarget,
-                                noSplit: isNoSplit,
-                                sourceTag:
-                                    'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$currentTarget',
-                              ),
-                            ),
-                          )
-                        : null;
-                    await _workoutDraftService.clearTodayDraftWorkout();
-                    if (result == true && mounted) {
-                      await _loadCompletedExercisesForDay(selectedDayDate);
-                    }
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.neonGreen,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                  ),
-                  icon: const Icon(
-                    Icons.play_arrow,
-                    color: Colors.black,
-                    size: 16,
-                  ),
-                  label: const Text(
-                    'TẬP NGAY',
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
                 ),
               ],
             ],

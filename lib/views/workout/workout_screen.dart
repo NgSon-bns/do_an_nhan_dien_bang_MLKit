@@ -25,6 +25,7 @@ class WorkoutScreen extends StatefulWidget {
   final bool noSplit;
   final String? sourceTag;
   final List<CameraDescription> cameras;
+  final int initialCompletedCount;
 
   const WorkoutScreen({
     super.key,
@@ -33,6 +34,7 @@ class WorkoutScreen extends StatefulWidget {
     required this.noSplit,
     this.sourceTag,
     required this.cameras,
+    this.initialCompletedCount = 0,
   });
 
   @override
@@ -93,6 +95,31 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _setPlan = widget.noSplit
         ? [widget.targetCount]
         : ExerciseDetail.computeSetPlan(widget.targetCount);
+
+    if (widget.exercise.isDurationBased) {
+      _session.activeHoldSeconds = widget.initialCompletedCount;
+    } else {
+      _session.counter = widget.initialCompletedCount;
+    }
+
+    int remaining = widget.initialCompletedCount;
+    _currentSetIndex = 0;
+    _currentSetCount = 0;
+    for (int i = 0; i < _setPlan.length; i++) {
+      if (remaining >= _setPlan[i]) {
+        remaining -= _setPlan[i];
+        _currentSetIndex = i + 1;
+      } else {
+        _currentSetIndex = i;
+        _currentSetCount = remaining;
+        remaining = 0;
+        break;
+      }
+    }
+    if (_currentSetIndex >= _setPlan.length) {
+      _currentSetIndex = _setPlan.length - 1;
+      _currentSetCount = _setPlan.isEmpty ? 0 : _setPlan.last;
+    }
 
     _session.feedbackMessage = _alignmentFeedback;
 
@@ -183,6 +210,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               _session.isPostureCorrect &&
               _isFullBodyVisible) {
             _session.activeHoldSeconds++;
+            if (_session.activeHoldSeconds >= widget.targetCount) {
+              _isWorkoutComplete = true;
+              _session.feedbackMessage =
+                  'Hoàn thành bài tập! Chúc mừng bạn đã hoàn tất.';
+              _session.announcementMessage =
+                  'Bạn đã hoàn thành bài tập. Nghỉ ngơi và tận hưởng thành quả!';
+              if (mounted && !_hasShownCompletionDialog) {
+                _hasShownCompletionDialog = true;
+                _workoutTimer?.cancel();
+                _showCompletionDialog();
+              }
+            }
           }
         }
 
@@ -767,8 +806,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 ),
               ),
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+           ElevatedButton(
+              onPressed: () async {
+                // 1. Chạy hàm xóa nháp (đảm bảo hàm này có async/await)
+                await _workoutDraftService.clearTodayDraftWorkout();
+              
+                // 3. Đóng dialog và trả về kết quả
+                if (context.mounted) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.neonGreen,
                 padding: EdgeInsets.symmetric(
@@ -786,7 +833,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
+            )
+
           ],
         );
       },
@@ -822,15 +870,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context); // Đóng loading spinner
     }
 
     if (mounted) {
-      Navigator.pop(context);
+      Navigator.pop(context, 'complete');
     }
   }
 
-  Future<bool> _onBackPressed() async {
+  Future<dynamic> _onBackPressed() async {
     // Tạm dừng timer khi hiện dialog
     _workoutTimer?.cancel();
     await _pauseCameraForDialog();
@@ -843,7 +891,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final scoreUnit = isDuration ? 'giây' : 'lần';
 
     final dialogContext = context;
-    bool? result = await showDialog<bool>(
+    final result = await showDialog<dynamic>(
       context: dialogContext,
       barrierDismissible: false,
       builder: (builderContext) {
@@ -938,7 +986,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           actions: [
             if (!_isWorkoutComplete)
               TextButton(
-                onPressed: () => Navigator.pop(builderContext, false),
+                onPressed: () => Navigator.pop(builderContext, 'exit'),
                 child: const Text(
                   'Thoát',
                   style: TextStyle(
@@ -957,6 +1005,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                     exerciseName: widget.exercise.name,
                     targetCount: widget.targetCount,
                     noSplit: widget.noSplit,
+                    completedCount: widget.exercise.isDurationBased
+                        ? _session.activeHoldSeconds
+                        : _session.counter,
                     sourceTag: widget.sourceTag,
                   );
                   if (!mounted) return;
@@ -966,7 +1017,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       duration: Duration(seconds: 2),
                     ),
                   );
-                  Navigator.pop(context, null);
+                  Navigator.pop(builderContext, 'draft');
                 },
                 child: const Text(
                   'Lưu tạm',
@@ -976,7 +1027,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               TextButton(
                 onPressed: () {
                   _startTimer();
-                  Navigator.pop(context, null);
+                  Navigator.pop(builderContext, 'resume');
                 },
                 child: const Text(
                   'Tập tiếp',
@@ -988,7 +1039,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             // Nút "Lưu & Thoát" chỉ hiện nếu ĐÃ hoàn thành (hoặc tùy ý logic của bạn)
             if (_isWorkoutComplete)
               ElevatedButton(
-                onPressed: () => Navigator.pop(builderContext, true),
+                onPressed: () => Navigator.pop(builderContext, 'complete'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.neonGreen,
                   padding: EdgeInsets.symmetric(
@@ -1014,12 +1065,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     await _resumeCameraAfterDialog();
 
-    if (result == null) {
+    if (result == null || result == 'resume') {
       return false; // Ở lại màn hình
     }
 
-    if (result == true && !isOffline) {
-      if (!mounted) return false;
+    if (result == 'complete' && !isOffline) {
+      if (!mounted) return 'complete';
       // Hiện loading spinner
       showDialog(
         context: context,
@@ -1042,11 +1093,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         debugPrint('Lỗi lưu kết quả: $e');
       }
 
-      if (!mounted) return true;
+      if (!mounted) return 'complete';
       Navigator.pop(context); // Đóng loading spinner
     }
 
-    return true; // Thoát màn hình
+    return result; // Trả về 'draft', 'exit', hoặc 'complete'
   }
 
   void _skipRest() {
@@ -1067,7 +1118,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         final shouldPop = await _onBackPressed();
-        if (shouldPop && context.mounted) {
+        if (shouldPop != false && context.mounted) {
           Navigator.of(context).pop();
         }
       },
@@ -1197,7 +1248,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       isWorkoutStarted: _isWorkoutStarted,
                       onBackPressed: () async {
                         final shouldPop = await _onBackPressed();
-                        if (shouldPop && context.mounted) {
+                        if (shouldPop != false && context.mounted) {
                           Navigator.of(context).pop();
                         }
                       },

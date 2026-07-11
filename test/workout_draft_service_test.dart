@@ -25,7 +25,26 @@ void main() {
     expect(draft!['exerciseType'], 'pushUp');
     expect(draft['exerciseName'], 'Chống đẩy');
     expect(draft['targetCount'], 50);
+    expect(draft['completedCount'], 0);
     expect(draft['sourceTag'], 'recommendation');
+  });
+
+  test('saves today draft workout with non-zero completed count', () async {
+    final service = WorkoutDraftService();
+
+    await service.saveDraftWorkout(
+      exerciseType: 'squat',
+      exerciseName: 'Squat',
+      targetCount: 30,
+      noSplit: true,
+      completedCount: 12,
+      sourceTag: 'exercise_list',
+    );
+
+    final draft = await service.getTodayDraftWorkout();
+    expect(draft, isNotNull);
+    expect(draft!['exerciseType'], 'squat');
+    expect(draft['completedCount'], 12);
   });
 
   test('clears draft after completion', () async {

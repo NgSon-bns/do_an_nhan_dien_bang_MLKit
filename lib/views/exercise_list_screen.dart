@@ -50,6 +50,15 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     _refreshTodayDraftWorkout();
   }
 
+  Future<void> _clearTodayDraftWorkout() async {
+    // Gọi service để xóa bài tập nháp dưới local/database
+    // Bạn hãy thay thế tên hàm đúng với service của bạn (ví dụ: clearTodayDraftWorkout)
+    await _workoutDraftService.clearTodayDraftWorkout();
+
+    // Cập nhật lại UI sau khi xóa thành công
+    await _refreshTodayDraftWorkout();
+  }
+
   Future<void> _refreshTodayDraftWorkout() async {
     final draft = await _workoutDraftService.getTodayDraftWorkout();
     if (mounted) {
@@ -60,8 +69,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   }
 
   Future<void> _loadCheckInData() async {
+    await _refreshTodayDraftWorkout();
     setState(() {
       _isLoadingCheckIn = true;
+      
     });
     try {
       final streak = await _checkInService.getStreak();
@@ -87,7 +98,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
   Future<void> _handleCheckIn() async {
     if (_hasCheckedInToday) return;
-
+    await _refreshTodayDraftWorkout();
     setState(() {
       _isLoadingCheckIn = true;
     });
@@ -141,7 +152,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       });
       return;
     }
-
+    await _refreshTodayDraftWorkout();
     setState(() {
       _isLoadingStats = true;
     });
@@ -944,6 +955,48 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 ],
                               ),
                             ),
+                            // NÚT XÓA MỚI ĐƯỢC THÊM VÀO ĐÂY
+                            TextButton(
+                              onPressed: () async {
+                                // Hiển thị hộp thoại xác nhận trước khi xóa (Tùy chọn, giúp tránh bấm nhầm)
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Xóa bài tập tạm?'),
+                                    content: const Text(
+                                      'Bạn có chắc chắn muốn xóa bài tập nháp này không?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Hủy'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text(
+                                          'Xóa',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirm == true) {
+                                  await _clearTodayDraftWorkout();
+                                }
+                              },
+                              child: const Text(
+                                'Xóa',
+                                style: TextStyle(
+                                  color: Colors
+                                      .redAccent, // Màu đỏ để phân biệt với nút Tiếp tục
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                             TextButton(
                               onPressed: () async {
                                 final draft = _todayDraftWorkout;
@@ -957,7 +1010,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       orElse: () =>
                                           ExerciseDetail.defaultExercises.first,
                                     );
-                                await Navigator.push(
+                                final result = await Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => WorkoutScreen(
@@ -968,11 +1021,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       noSplit:
                                           draft['noSplit'] as bool? ?? false,
                                       sourceTag: draft['sourceTag'] as String?,
+                                      initialCompletedCount:
+                                          (draft['completedCount'] as num?)
+                                              ?.toInt() ??
+                                          0,
                                     ),
                                   ),
                                 );
-                                await _workoutDraftService
-                                    .clearTodayDraftWorkout();
+
                                 await _refreshTodayDraftWorkout();
                               },
                               child: const Text(
@@ -1178,9 +1234,16 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final currentTarget =
-                _selectedTargets[exercise.type] ?? exercise.targetValue;
-            final isNoSplit = _noSplitTargets[exercise.type] ?? false;
+            final isDraftForThisExercise =
+                _todayDraftWorkout != null &&
+                _todayDraftWorkout!['exerciseType'] == exercise.type.name;
+
+            final currentTarget = isDraftForThisExercise
+                ? (_todayDraftWorkout!['targetCount'] as num).toInt()
+                : (_selectedTargets[exercise.type] ?? exercise.targetValue);
+            final isNoSplit = isDraftForThisExercise
+                ? (_todayDraftWorkout!['noSplit'] as bool? ?? false)
+                : (_noSplitTargets[exercise.type] ?? false);
 
             return Padding(
               padding: EdgeInsets.only(
@@ -1335,106 +1398,142 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    if (!exercise.isDurationBased) ...[
-                      const Text(
-                        'CHỌN SỐ LẦN TẬP (REPS):',
-                        style: TextStyle(
-                          color: AppTheme.neonGreen,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          letterSpacing: 1.0,
+                    if (!isDraftForThisExercise) ...[
+                      if (!exercise.isDurationBased) ...[
+                        const Text(
+                          'CHỌN SỐ LẦN TẬP (REPS):',
+                          style: TextStyle(
+                            color: AppTheme.neonGreen,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            letterSpacing: 1.0,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: ExerciseDetail.targetOptions.map((option) {
-                          final isSelected = currentTarget == option;
-                          return ChoiceChip(
-                            label: Text('$option lần'),
-                            selected: isSelected,
-                            selectedColor: AppTheme.neonGreen,
-                            backgroundColor: Colors.white.withValues(
-                              alpha: 0.05,
-                            ),
-                            labelStyle: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white70,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                            onSelected: (_) {
-                              setModalState(() {
-                                _selectedTargets[exercise.type] = option;
-                              });
-                              setState(() {});
-                            },
-                          );
-                        }).toList(),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: ExerciseDetail.targetOptions.map((option) {
+                            final isSelected = currentTarget == option;
+                            return ChoiceChip(
+                              label: Text('$option lần'),
+                              selected: isSelected,
+                              selectedColor: AppTheme.neonGreen,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.05,
+                              ),
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? Colors.black
+                                    : Colors.white70,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setModalState(() {
+                                  _selectedTargets[exercise.type] = option;
+                                });
+                                setState(() {});
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ] else ...[
+                        const Text(
+                          'CHỌN SỐ GIÂY GIỮ PLANK:',
+                          style: TextStyle(
+                            color: AppTheme.neonGreen,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [20, 30, 45, 60, 90, 120].map((option) {
+                            final isSelected = currentTarget == option;
+                            return ChoiceChip(
+                              label: Text('$option giây'),
+                              selected: isSelected,
+                              selectedColor: AppTheme.neonGreen,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.05,
+                              ),
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? Colors.black
+                                    : Colors.white70,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setModalState(() {
+                                  _selectedTargets[exercise.type] = option;
+                                });
+                                setState(() {});
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+
+                      SwitchListTile(
+                        title: const Text(
+                          'Tập liên tục (không chia hiệp)',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Bỏ qua đếm ngược và chia chặng nghỉ giữa giờ.',
+                          style: TextStyle(color: Colors.grey, fontSize: 11),
+                        ),
+                        value: isNoSplit,
+                        activeThumbColor: AppTheme.neonGreen,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (val) {
+                          setModalState(() {
+                            _noSplitTargets[exercise.type] = val;
+                          });
+                          setState(() {});
+                        },
                       ),
                     ] else ...[
-                      const Text(
-                        'CHỌN SỐ GIÂY GIỮ PLANK:',
-                        style: TextStyle(
-                          color: AppTheme.neonGreen,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          letterSpacing: 1.0,
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.neonGreen.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppTheme.neonGreen.withValues(alpha: 0.3),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [20, 30, 45, 60, 90, 120].map((option) {
-                          final isSelected = currentTarget == option;
-                          return ChoiceChip(
-                            label: Text('$option giây'),
-                            selected: isSelected,
-                            selectedColor: AppTheme.neonGreen,
-                            backgroundColor: Colors.white.withValues(
-                              alpha: 0.05,
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline,
+                              color: AppTheme.neonGreen,
+                              size: 20,
                             ),
-                            labelStyle: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white70,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Bạn có bài tập lưu tạm hôm nay: đã hoàn thành ${_todayDraftWorkout!['completedCount'] ?? 0}/${_todayDraftWorkout!['targetCount']} ${exercise.isDurationBased ? 'giây' : 'lần'}. Bấm "Tập tiếp" để tiếp tục.',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
                             ),
-                            onSelected: (_) {
-                              setModalState(() {
-                                _selectedTargets[exercise.type] = option;
-                              });
-                              setState(() {});
-                            },
-                          );
-                        }).toList(),
+                          ],
+                        ),
                       ),
                     ],
-                    const SizedBox(height: 16),
-
-                    SwitchListTile(
-                      title: const Text(
-                        'Tập liên tục (không chia hiệp)',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: const Text(
-                        'Bỏ qua đếm ngược và chia chặng nghỉ giữa giờ.',
-                        style: TextStyle(color: Colors.grey, fontSize: 11),
-                      ),
-                      value: isNoSplit,
-                      activeThumbColor: AppTheme.neonGreen,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) {
-                        setModalState(() {
-                          _noSplitTargets[exercise.type] = val;
-                        });
-                        setState(() {});
-                      },
-                    ),
                     const SizedBox(height: 24),
 
                     SizedBox(
@@ -1445,16 +1544,8 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           if (navigatorContext.mounted) {
                             Navigator.pop(navigatorContext);
                           }
-                          await _workoutDraftService.saveDraftWorkout(
-                            exerciseType: exercise.type.name,
-                            exerciseName: exercise.name,
-                            targetCount: currentTarget,
-                            noSplit: isNoSplit,
-                            sourceTag: 'exercise_list',
-                          );
-                          await _refreshTodayDraftWorkout();
                           if (navigatorContext.mounted) {
-                            await Navigator.push(
+                            final result = await Navigator.push(
                               navigatorContext,
                               MaterialPageRoute(
                                 builder: (context) => WorkoutScreen(
@@ -1463,14 +1554,18 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   targetCount: currentTarget,
                                   noSplit: isNoSplit,
                                   sourceTag: 'exercise_list',
+                                  initialCompletedCount: isDraftForThisExercise
+                                      ? (_todayDraftWorkout!['completedCount']
+                                                    as num?)
+                                                ?.toInt() ??
+                                            0
+                                      : 0,
                                 ),
                               ),
-                            ).then((_) async {
-                              await _workoutDraftService
-                                  .clearTodayDraftWorkout();
-                              await _refreshTodayDraftWorkout();
-                              _loadDashboardData();
-                            });
+                            );
+
+                            await _refreshTodayDraftWorkout();
+                            _loadDashboardData();
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -1482,9 +1577,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           ),
                         ),
                         icon: const Icon(Icons.play_arrow, size: 20),
-                        label: const Text(
-                          'BẮT ĐẦU LUYỆN TẬP NGAY',
-                          style: TextStyle(
+                        label: Text(
+                          isDraftForThisExercise
+                              ? 'TẬP TIẾP'
+                              : 'BẮT ĐẦU LUYỆN TẬP NGAY',
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),

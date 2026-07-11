@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class WorkoutDraftService {
@@ -9,6 +10,7 @@ class WorkoutDraftService {
     required String exerciseName,
     required int targetCount,
     required bool noSplit,
+    int completedCount = 0,
     String? sourceTag,
   }) async {
     final prefs = await SharedPreferences.getInstance();
@@ -21,11 +23,13 @@ class WorkoutDraftService {
       'exerciseName': exerciseName,
       'targetCount': targetCount,
       'noSplit': noSplit,
+      'completedCount': completedCount,
       'sourceTag': sourceTag,
       'savedAt': now.toIso8601String(),
     };
 
     await prefs.setString(_draftKey, jsonEncode(draft));
+    debugPrint('ok');
   }
 
   Future<Map<String, dynamic>?> getTodayDraftWorkout() async {
