@@ -1117,9 +1117,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        final shouldPop = await _onBackPressed();
-        if (shouldPop != false && context.mounted) {
-          Navigator.of(context).pop();
+        final popResult = await _onBackPressed();
+        if (popResult != false && popResult != null && context.mounted) {
+          Navigator.of(context).pop(popResult);
         }
       },
       child: Scaffold(
@@ -1247,9 +1247,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       announcementMessage: _session.announcementMessage,
                       isWorkoutStarted: _isWorkoutStarted,
                       onBackPressed: () async {
-                        final shouldPop = await _onBackPressed();
-                        if (shouldPop != false && context.mounted) {
-                          Navigator.of(context).pop();
+                        final popResult = await _onBackPressed();
+                        if (popResult != false && popResult != null && context.mounted) {
+                          Navigator.of(context).pop(popResult);
                         }
                       },
                       onResetPressed: _resetWorkout,

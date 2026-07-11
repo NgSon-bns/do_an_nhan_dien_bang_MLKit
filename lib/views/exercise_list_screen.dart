@@ -75,6 +75,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       
     });
     try {
+      await _checkInService.syncCheckInHistoryFromSupabase();
       final streak = await _checkInService.getStreak();
       final hasChecked = await _checkInService.hasCheckedInToday();
       final weekStatus = await _checkInService.getCurrentWeekCheckInStatus();

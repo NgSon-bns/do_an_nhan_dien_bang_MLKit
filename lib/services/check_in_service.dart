@@ -10,6 +10,103 @@ class CheckInService {
 
   final DatabaseService _databaseService = DatabaseService();
 
+  // Đồng bộ lịch sử điểm danh từ Supabase CSDL xuống SharedPreferences cục bộ
+  Future<void> syncCheckInHistoryFromSupabase() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return;
+
+      List<String> datesFromDb = [];
+
+      try {
+        final List<dynamic> data = await client
+            .from('check_ins')
+            .select('check_in_date')
+            .eq('user_id', user.id);
+
+        for (var row in data) {
+          final String? dateStr = row['check_in_date'] as String?;
+          if (dateStr != null && !datesFromDb.contains(dateStr)) {
+            datesFromDb.add(dateStr);
+          }
+        }
+      } catch (dbError) {
+        debugPrint('Bảng check_ins chưa sẵn sàng, thử tải từ workout_history: $dbError');
+        try {
+          final List<dynamic> data = await client
+              .from('workout_history')
+              .select('created_at')
+              .eq('user_id', user.id)
+              .like('exercise_id', 'check_in%');
+
+          for (var row in data) {
+            final String? createdAt = row['created_at'] as String?;
+            if (createdAt != null) {
+              final dateStr = createdAt.substring(0, 10); // yyyy-MM-dd
+              if (!datesFromDb.contains(dateStr)) {
+                datesFromDb.add(dateStr);
+              }
+            }
+          }
+        } catch (fallbackError) {
+          debugPrint('Lỗi fallback khi tải điểm danh: $fallbackError');
+        }
+      }
+
+      if (datesFromDb.isEmpty) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final List<String> dates = prefs.getStringList(_datesKey) ?? [];
+
+      bool hasNewData = false;
+      for (var dbDate in datesFromDb) {
+        if (!dates.contains(dbDate)) {
+          dates.add(dbDate);
+          hasNewData = true;
+        }
+      }
+
+      if (!hasNewData) return;
+
+      dates.sort();
+
+      int streak = 0;
+      String? lastCheckInDate;
+      if (dates.isNotEmpty) {
+        final reversedDates = List<String>.from(dates)..sort((a, b) => b.compareTo(a));
+        lastCheckInDate = reversedDates.first;
+
+        final today = _getTodayDateString();
+        final yesterday = _getDateString(DateTime.now().subtract(const Duration(days: 1)));
+
+        if (lastCheckInDate == today || lastCheckInDate == yesterday) {
+          streak = 1;
+          DateTime checkDate = DateTime.parse(lastCheckInDate);
+          while (true) {
+            checkDate = checkDate.subtract(const Duration(days: 1));
+            final checkDateStr = _getDateString(checkDate);
+            if (dates.contains(checkDateStr)) {
+              streak++;
+            } else {
+              break;
+            }
+          }
+        } else {
+          streak = 0;
+        }
+      }
+
+      await prefs.setStringList(_datesKey, dates);
+      await prefs.setInt(_streakKey, streak);
+      if (lastCheckInDate != null) {
+        await prefs.setString(_lastKey, lastCheckInDate);
+      }
+    } catch (e) {
+      debugPrint('Lỗi đồng bộ lịch sử điểm danh từ Supabase: $e');
+    }
+  }
+
   // Tải danh sách ngày đã điểm danh
   Future<List<String>> getCheckInDates() async {
     final prefs = await SharedPreferences.getInstance();
@@ -75,14 +172,22 @@ class CheckInService {
     // Đồng bộ lên Supabase dưới dạng hoạt động đặc biệt 'check_in'
     try {
       final client = Supabase.instance.client;
-      if (client.auth.currentUser != null) {
-        await _databaseService.saveWorkoutResult(
-          exerciseType: 'check_in',
-          repsCount: 1,
-          durationSeconds: 0,
-          caloriesBurned: 0.0,
-          incorrectPostures: 0,
-        );
+      final user = client.auth.currentUser;
+      if (user != null) {
+        try {
+          await client.from('check_ins').insert({
+            'user_id': user.id,
+            'check_in_date': today,
+          });
+        } catch (_) {
+          await _databaseService.saveWorkoutResult(
+            exerciseType: 'check_in',
+            repsCount: 1,
+            durationSeconds: 0,
+            caloriesBurned: 0.0,
+            incorrectPostures: 0,
+          );
+        }
       }
     } catch (e) {
       debugPrint('Lỗi đồng bộ điểm danh lên database: $e');

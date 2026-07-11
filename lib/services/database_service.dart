@@ -70,7 +70,6 @@ class DatabaseService {
     }
   }
 
-  /// Lấy danh sách bài tập đã hoàn thành trong một ngày cụ thể dựa trên workout_history
   Future<List<Map<String, dynamic>>> getCompletedExerciseRecordsForDate(
     DateTime day,
   ) async {
@@ -78,24 +77,37 @@ class DatabaseService {
     if (user == null) return [];
 
     try {
-      final startOfDay = DateTime.utc(day.year, day.month, day.day);
-      final endOfDay = startOfDay.add(const Duration(days: 1));
+      // Để tránh lệch múi giờ giữa UTC trên Supabase và giờ địa phương (Local Time),
+      // ta truy vấn dữ liệu trong khoảng rộng (-1 ngày đến +2 ngày) rồi lọc chính xác theo ngày địa phương.
+      final startQuery = DateTime.utc(day.year, day.month, day.day).subtract(const Duration(days: 1));
+      final endQuery = DateTime.utc(day.year, day.month, day.day).add(const Duration(days: 2));
 
       final List<dynamic> data = await _client
           .from('workout_history')
-          .select('exercise_id, reps_count')
+          .select('exercise_id, reps_count, created_at')
           .eq('user_id', user.id)
-          .gte('created_at', startOfDay.toIso8601String())
-          .lt('created_at', endOfDay.toIso8601String());
+          .gte('created_at', startQuery.toIso8601String())
+          .lt('created_at', endQuery.toIso8601String());
 
-      return data
-          .map<Map<String, dynamic>>(
-            (row) => {
+      final String targetDateStr = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+      final List<Map<String, dynamic>> filteredList = [];
+
+      for (var row in data) {
+        final String? createdAtStr = row['created_at'] as String?;
+        if (createdAtStr != null) {
+          final DateTime localDateTime = DateTime.parse(createdAtStr).toLocal();
+          final String localDateStr = '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
+          
+          if (localDateStr == targetDateStr) {
+            filteredList.add({
               'exercise_id': (row['exercise_id'] as String?) ?? '',
               'reps_count': (row['reps_count'] as num?)?.toInt() ?? 0,
-            },
-          )
-          .toList();
+            });
+          }
+        }
+      }
+
+      return filteredList;
     } catch (e) {
       debugPrint('Lỗi truy vấn workout_history theo ngày: $e');
       return [];

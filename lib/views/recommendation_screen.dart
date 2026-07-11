@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 import '../core/theme/app_theme.dart';
 import '../models/exercise.dart';
@@ -34,13 +36,18 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   final Map<ExerciseType, int> _selectedTargets = {};
   final Map<ExerciseType, bool> _expandedTargetSelectors = {};
   final Map<String, Set<String>> _completedExerciseKeysByDay = {};
+  bool _isMealPlanExpanded = false;
+  List<Map<String, dynamic>> _todayMealLogs = [];
 
   @override
   void initState() {
     super.initState();
     _selectedDayIndex = DateTime.now().weekday - 1;
     _loadUserProfile();
-    _loadCompletedExercisesForDay(_getSelectedDayDate(_selectedDayIndex));
+    
+    final selectedDate = _getSelectedDayDate(_selectedDayIndex);
+    _loadCompletedExercisesForDay(selectedDate);
+    _loadMealLogsForDay(selectedDate);
     _refreshTodayDraftWorkout();
   }
 
@@ -51,6 +58,150 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         _todayDraftWorkout = draft;
       });
     }
+  }
+
+  Future<void> _loadMealLogsForDay(DateTime day) async {
+    final dayKey = _getDayKey(day);
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('meal_logs_$dayKey');
+    
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw) as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _todayMealLogs = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          });
+        }
+      } catch (e) {
+        debugPrint('Lỗi tải nhật ký ăn uống: $e');
+        if (mounted) {
+          setState(() {
+            _todayMealLogs = [];
+          });
+        }
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _todayMealLogs = [];
+        });
+      }
+    }
+  }
+
+  Future<void> _saveMealLogsForDay(DateTime day) async {
+    final dayKey = _getDayKey(day);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('meal_logs_$dayKey', jsonEncode(_todayMealLogs));
+  }
+
+  void _showAddCustomMealDialog(DateTime day) {
+    final nameController = TextEditingController();
+    final caloriesController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (builderContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.cardBackground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.add_circle_outline, color: AppTheme.neonBlue),
+              SizedBox(width: 8),
+              Text(
+                'GHI NHẬN MÓN ĂN',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: 'Tên món ăn / Đồ uống',
+                  labelStyle: const TextStyle(color: Colors.white60, fontSize: 12),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: Colors.white12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: AppTheme.neonBlue),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: caloriesController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: 'Lượng Calo (kcal)',
+                  labelStyle: const TextStyle(color: Colors.white60, fontSize: 12),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: Colors.white12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: AppTheme.neonBlue),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(builderContext),
+              child: const Text('Hủy', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                final cal = int.tryParse(caloriesController.text.trim()) ?? 0;
+                if (name.isNotEmpty && cal > 0) {
+                  setState(() {
+                    _todayMealLogs.add({
+                      'mealKey': 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                      'foodName': name,
+                      'calories': cal,
+                      'isRecommended': false,
+                    });
+                  });
+                  _saveMealLogsForDay(day);
+                  Navigator.pop(builderContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Đã ghi nhận món ăn thành công!'),
+                      backgroundColor: AppTheme.neonGreen,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Vui lòng nhập đầy đủ thông tin hợp lệ!'),
+                      backgroundColor: AppTheme.errorRed,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.neonBlue,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Lưu', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   bool get _isSupabaseInitialized {
@@ -93,18 +244,23 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
           // Đọc mục tiêu tập luyện từ database nếu có lưu trước đó
           final String? dbGoal = profile['goal'] ?? profile['fitness_goal'];
-          if (dbGoal != null) {
-            _selectedGoal = dbGoal;
+          double bmi = _weight / ((_height / 100) * (_height / 100));
+          
+          if (bmi >= 25.0) {
+            _selectedGoal = 'lose';
+          } else if (bmi < 18.5) {
+            _selectedGoal = 'build';
           } else {
-            // Tự chọn mặc định dựa trên BMI
-            double bmi = _weight / ((_height / 100) * (_height / 100));
-            if (bmi >= 25.0) {
-              _selectedGoal = 'lose';
-            } else if (bmi < 18.5) {
-              _selectedGoal = 'build';
+            if (dbGoal == 'maintain' || dbGoal == 'build') {
+              _selectedGoal = dbGoal!;
             } else {
               _selectedGoal = 'maintain';
             }
+          }
+
+          // Đồng bộ ngược lại database nếu mục tiêu bị cưỡng chế thay đổi do BMI
+          if (_selectedGoal != dbGoal) {
+            _updateGoal(_selectedGoal);
           }
         });
       }
@@ -280,11 +436,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  void _toggleExerciseCompletedForDay(
+  Future<void> _toggleExerciseCompletedForDay(
     ExerciseType type,
     DateTime day,
-    int targetCount,
-  ) {
+    int targetCount, {
+    bool isManual = true,
+  }) async {
     final dayKey = _getDayKey(day);
     final completedForDay = _completedExerciseKeysByDay.putIfAbsent(
       dayKey,
@@ -301,6 +458,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       completedForDay.remove(completionKey);
     } else {
       completedForDay.add(completionKey);
+      
+      if (isManual) {
+        try {
+          await DatabaseService().saveWorkoutResult(
+            exerciseType: type.name,
+            repsCount: targetCount,
+            durationSeconds: type == ExerciseType.plank || type == ExerciseType.jumpingJack ? targetCount : 45,
+            caloriesBurned: type == ExerciseType.plank ? targetCount * 0.1 : targetCount * 0.4,
+            incorrectPostures: 0,
+            sourceTag: 'recommended:${day.toIso8601String()}:${type.name}:$targetCount',
+          );
+        } catch (e) {
+          debugPrint('Lỗi đồng bộ tick bài tập: $e');
+        }
+      }
     }
 
     if (mounted) {
@@ -1238,7 +1410,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 16),
+                          _buildNutritionAdvicePanel(bmi, selectedDayDate),
+                          const SizedBox(height: 12),
 
                           // NẾU GIẢM CÂN: HIỂN THỊ LỊCH TRÌNH CHO THỨ HÔM NAY
                           if (isLoseWeight) ...[
@@ -1275,9 +1449,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                       setState(() {
                                         _selectedDayIndex = index;
                                       });
-                                      _loadCompletedExercisesForDay(
-                                        _getSelectedDayDate(index),
-                                      );
+                                      final selectedDate = _getSelectedDayDate(index);
+                                      _loadCompletedExercisesForDay(selectedDate);
+                                      _loadMealLogsForDay(selectedDate);
                                     },
                                     child: Container(
                                       width: 92,
@@ -1381,6 +1555,181 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               ),
                             ),
                           ],
+                          
+                          // Tiến độ hoàn thành bài tập đề xuất theo ngày
+                          Builder(
+                            builder: (context) {
+                              final List<dynamic> currentExercises = isLoseWeight
+                                  ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
+                                  : recommendedList;
+
+                              final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+
+                              if (isRest || currentExercises.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+
+                              int totalExercises = currentExercises.length;
+                              int completedCount = 0;
+                              final List<String> completedList = [];
+                              final List<String> missingList = [];
+
+                              for (var rec in currentExercises) {
+                                final ExerciseType type = rec['type'] as ExerciseType;
+                                final originalExercise = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == type);
+                                final bool isCompleted = _isExerciseCompletedForDay(type, selectedDayDate);
+                                if (isCompleted) {
+                                  completedCount++;
+                                  completedList.add(originalExercise.name);
+                                } else {
+                                  missingList.add(originalExercise.name);
+                                }
+                              }
+
+                              return Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(top: 16),
+                                padding: const EdgeInsets.all(16),
+                                decoration: AppTheme.glassDecoration(
+                                  color: AppTheme.cardBackground.withValues(alpha: 0.25),
+                                  borderRadius: 20,
+                                ).copyWith(
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'TIẾN ĐỘ THỰC HIỆN',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 0.8,
+                                          ),
+                                        ),
+                                        Text(
+                                          '$completedCount/$totalExercises bài',
+                                          style: const TextStyle(
+                                            color: AppTheme.neonGreen,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: LinearProgressIndicator(
+                                        value: totalExercises > 0 ? (completedCount / totalExercises) : 0.0,
+                                        backgroundColor: Colors.white12,
+                                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.neonGreen),
+                                        minHeight: 6,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    // Danh sách bài đã tập
+                                    RichText(
+                                      text: TextSpan(
+                                        style: const TextStyle(fontSize: 11.5, height: 1.4),
+                                        children: [
+                                          const TextSpan(
+                                            text: 'Đã tập: ',
+                                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                                          ),
+                                          TextSpan(
+                                            text: completedList.isEmpty
+                                                ? 'Chưa tập bài nào'
+                                                : completedList.join(', '),
+                                            style: TextStyle(
+                                              color: completedList.isEmpty ? Colors.white54 : AppTheme.neonGreen,
+                                              fontWeight: completedList.isEmpty ? FontWeight.normal : FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Danh sách bài còn thiếu
+                                    RichText(
+                                      text: TextSpan(
+                                        style: const TextStyle(fontSize: 11.5, height: 1.4),
+                                        children: [
+                                          const TextSpan(
+                                            text: 'Còn thiếu: ',
+                                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                                          ),
+                                          TextSpan(
+                                            text: missingList.isEmpty
+                                                ? 'Không có (Đã hoàn tất!)'
+                                                : missingList.join(', '),
+                                            style: TextStyle(
+                                              color: missingList.isEmpty ? AppTheme.neonBlue : AppTheme.errorRed,
+                                              fontWeight: missingList.isEmpty ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Divider(color: Colors.white10, height: 24),
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: completedCount == totalExercises
+                                            ? AppTheme.neonGreen.withValues(alpha: 0.08)
+                                            : AppTheme.errorRed.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: completedCount == totalExercises
+                                              ? AppTheme.neonGreen.withValues(alpha: 0.15)
+                                              : AppTheme.errorRed.withValues(alpha: 0.15),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(
+                                            completedCount == totalExercises
+                                                ? Icons.stars_rounded
+                                                : Icons.warning_amber_rounded,
+                                            color: completedCount == totalExercises
+                                                ? AppTheme.neonGreen
+                                                : AppTheme.errorRed,
+                                            size: 18,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              completedCount == totalExercises
+                                                  ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập đề xuất của ngày này. Hãy tiếp tục giữ vững phong độ nhé!'
+                                                  : (selectedDayIndex == safeTodayIndex
+                                                      ? 'Hôm nay bạn đang thiếu các bài tập: ${missingList.join(", ")}. Hãy bấm "TẬP NGAY" để hoàn thiện lộ trình nhé!'
+                                                      : 'Bạn đã bỏ lỡ các bài tập: ${missingList.join(", ")} của ngày này. Bạn có thể luyện tập bù ngay!'),
+                                              style: TextStyle(
+                                                color: completedCount == totalExercises
+                                                    ? AppTheme.neonGreen
+                                                    : AppTheme.errorRed,
+                                                fontSize: 11,
+                                                height: 1.4,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                           const SizedBox(height: 16),
                         ],
                       ),
@@ -1697,22 +2046,48 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  allowWorkoutAction
-                      ? (isCompletedForDay
-                            ? 'Đã hoàn thành'
-                            : 'Chưa hoàn thành')
-                      : 'Chỉ xem lịch cho ngày này',
-                  style: TextStyle(
-                    color: allowWorkoutAction
-                        ? (isCompletedForDay
-                              ? AppTheme.neonGreen
-                              : Colors.white70)
-                        : Colors.white.withValues(alpha: 0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                child: allowWorkoutAction
+                    ? GestureDetector(
+                        onTap: () => _toggleExerciseCompletedForDay(
+                          type,
+                          selectedDayDate,
+                          currentTarget,
+                          isManual: true,
+                        ),
+                        behavior: HitTestBehavior.opaque,
+                        child: Row(
+                          children: [
+                            Icon(
+                              isCompletedForDay
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              color: isCompletedForDay
+                                  ? AppTheme.neonGreen
+                                  : Colors.white60,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              isCompletedForDay ? 'Đã hoàn thành' : 'Chưa hoàn thành',
+                              style: TextStyle(
+                                color: isCompletedForDay
+                                    ? AppTheme.neonGreen
+                                    : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Text(
+                        'Chỉ xem lịch cho ngày này',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
               if (allowWorkoutAction) ...[
                 const SizedBox(width: 8),
@@ -1766,6 +2141,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             type,
                             selectedDayDate,
                             finalTargetCount,
+                            isManual: false,
                           );
                           // Đồng thời tải lại dữ liệu chuẩn xác từ Database về
                           await _loadCompletedExercisesForDay(selectedDayDate);
@@ -1806,10 +2182,42 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     );
   }
 
+  bool isGoalAllowedForBmi(String goal, double bmi) {
+    if (bmi >= 25.0) {
+      return goal == 'lose';
+    } else if (bmi < 18.5) {
+      return goal == 'build';
+    } else {
+      return goal == 'maintain' || goal == 'build';
+    }
+  }
+
   Widget _buildGoalChip(String goalKey, String label) {
+    double bmi = _height > 0
+        ? _weight / ((_height / 100) * (_height / 100))
+        : 0.0;
+    
+    final isAllowed = isGoalAllowedForBmi(goalKey, bmi);
     final isSelected = _selectedGoal == goalKey;
+
     return GestureDetector(
-      onTap: () => _updateGoal(goalKey),
+      onTap: isAllowed ? () => _updateGoal(goalKey) : () {
+        String reason = '';
+        if (bmi >= 25.0) {
+          reason = 'Mục tiêu này bị khóa. Thể trạng Thừa cân/Béo phì cần ưu tiên Giảm cân để bảo vệ khớp gối!';
+        } else if (bmi < 18.5) {
+          reason = 'Mục tiêu này bị khóa. Thể trạng Thiếu cân cần ưu tiên Tăng cơ để cải thiện thể hình!';
+        } else {
+          reason = 'BMI Cân đối không cần giảm cân. Hãy chọn Giữ dáng hoặc Tăng cơ!';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🔒 $reason'),
+            backgroundColor: Colors.grey[900],
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: isSelected
@@ -1820,20 +2228,517 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 border: Border.all(color: AppTheme.neonGreen, width: 1.5),
               )
             : AppTheme.glassDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: isAllowed 
+                    ? Colors.white.withValues(alpha: 0.04) 
+                    : Colors.white.withValues(alpha: 0.01),
                 borderRadius: 12,
+              ).copyWith(
+                border: Border.all(
+                  color: isSelected 
+                      ? AppTheme.neonGreen 
+                      : (isAllowed ? Colors.transparent : Colors.white10),
+                  width: 1,
+                ),
               ),
         child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? AppTheme.neonGreen : Colors.white70,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              fontSize: 13,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (!isAllowed) ...[
+                const Icon(Icons.lock_outline, size: 12, color: Colors.white38),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected 
+                      ? AppTheme.neonGreen 
+                      : (isAllowed ? Colors.white70 : Colors.white30),
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 12,
+                  decoration: isAllowed ? TextDecoration.none : TextDecoration.lineThrough,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildNutritionAdvicePanel(double bmi, DateTime selectedDayDate) {
+    if (_weight <= 0 || _height <= 0 || _age <= 0) return const SizedBox.shrink();
+
+    double bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) - 78;
+    if (bmr < 1000) bmr = 1000;
+
+    double activityFactor = 1.25;
+    if (bmi < 18.5) {
+      activityFactor = 1.3;
+    } else if (bmi < 25.0) {
+      activityFactor = 1.375;
+    } else {
+      activityFactor = 1.2;
+    }
+
+    double tdee = bmr * activityFactor;
+    double targetCal = tdee;
+    String strategy = '';
+    String strategyDetail = '';
+    double carbRatio = 0.5;
+    double proteinRatio = 0.25;
+    double fatRatio = 0.25;
+
+    List<String> guidelines = [];
+    List<RecommendedMeal> mealList = [];
+
+    if (bmi < 18.5) {
+      targetCal = tdee + (tdee * 0.15); // Thặng dư 15%
+      strategy = 'Tăng cân & Tăng cơ (Calorie Surplus)';
+      strategyDetail = 'Để tăng cân lành mạnh, bạn cần nạp nhiều calo hơn lượng tiêu thụ, kết hợp bổ sung đạm để xây dựng cơ bắp.';
+      guidelines = [
+        'Chia nhỏ thành 5-6 bữa mỗi ngày (3 bữa chính, 2-3 bữa phụ).',
+        'Tăng cường đạm chất lượng cao (thịt, cá, trứng, sữa, đạm thực vật).',
+        'Ưu tiên tinh bột phức hợp (cơm, khoai tây, yến mạch) và chất béo tốt (bơ, các loại hạt).',
+        'Uống đủ 2 - 2.5 lít nước, tránh uống nước trước bữa ăn để không bị no giả.'
+      ];
+      mealList = [
+        RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 bát phở bò lớn + 1 ly sữa tươi nguyên kem', calories: 500),
+        RecommendedMeal(key: 'snack_am', timeLabel: 'Bữa phụ sáng (09:30)', description: '1 quả chuối chín + 30g hạt điều/hạnh nhân', calories: 200),
+        RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '2 bát cơm + 150g thịt lợn kho/ức gà + rau luộc + 1 bát canh', calories: 650),
+        RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '2 lát bánh mì gối phết bơ đậu phộng + 1 cốc sữa đậu nành', calories: 300),
+        RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1.5 bát cơm + 150g cá hồi/cá thu sốt + đĩa xào rau củ', calories: 550),
+        RecommendedMeal(key: 'snack_night', timeLabel: 'Bữa phụ tối (21:30)', description: '1 hộp sữa chua + 1 muỗng mật ong + quả chín', calories: 150),
+      ];
+    } else if (bmi < 25.0) {
+      if (_selectedGoal == 'build') {
+        targetCal = tdee + (tdee * 0.10);
+        strategy = 'Tăng cơ nạc (Lean Bulking)';
+        strategyDetail = 'Duy trì thặng dư calo nhẹ để hỗ trợ tổng hợp cơ bắp mà không tích mỡ thừa.';
+      } else {
+        targetCal = tdee;
+        strategy = 'Duy trì vóc dáng (Calorie Maintenance)';
+        strategyDetail = 'Cân bằng giữa năng lượng nạp vào và tiêu thụ giúp giữ dáng săn chắc và tối ưu thể lực.';
+      }
+      guidelines = [
+        'Duy trì lượng đạm ổn định (1.6g - 2g trên mỗi kg cân nặng).',
+        'Ăn nhiều rau xanh và trái cây tươi để bổ sung vitamin, khoáng chất.',
+        'Hạn chế thực phẩm chế biến sẵn, nhiều đường và dầu mỡ.',
+        'Uống đủ 2 - 3 lít nước mỗi ngày để hỗ trợ trao đổi chất.'
+      ];
+      mealList = [
+        RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '2 quả trứng ốp la + 2 lát bánh mì đen + 1 quả táo', calories: 400),
+        RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm gạo lứt + 150g ức gà áp chảo + bông cải xanh luộc', calories: 550),
+        RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 hộp sữa chua không đường + hạt granola', calories: 200),
+        RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g tôm/cá hấp + đĩa xào dầu ô-liu', calories: 500),
+      ];
+    } else {
+      targetCal = tdee - (tdee * 0.15); // Thâm hụt 15%
+      strategy = 'Giảm mỡ & Giảm cân (Calorie Deficit)';
+      strategyDetail = 'Duy trì thâm hụt calo lành mạnh giúp cơ thể đốt cháy mỡ thừa mà không bị mệt mỏi.';
+      carbRatio = 0.4;
+      proteinRatio = 0.3;
+      fatRatio = 0.3;
+      guidelines = [
+        'Giảm khẩu phần tinh bột nhanh, thay bằng khoai lang, yến mạch, gạo lứt.',
+        'Tăng lượng protein để bảo vệ cơ bắp và tạo cảm giác no lâu.',
+        'Ăn nhiều rau xanh (bắp cải, súp lơ, xà lách) trước bữa ăn chính.',
+        'Uống 1 cốc nước ấm trước bữa ăn 15 phút, tuyệt đối tránh ăn đêm sau 20:00.'
+      ];
+      mealList = [
+        RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 bát cháo yến mạch ức gà xé + 1 cốc trà xanh ấm', calories: 300),
+        RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g cá fillet áp chảo + đĩa xúp lơ luộc', calories: 450),
+        RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 quả táo hoặc 1 quả ổi', calories: 80),
+        RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g thịt thăn bò áp chảo + đĩa salad lớn xốt giấm', calories: 400),
+      ];
+    }
+
+    if (targetCal < bmr) targetCal = bmr;
+
+    // Tính số gam dinh dưỡng
+    double carbGrams = (targetCal * carbRatio) / 4;
+    double proteinGrams = (targetCal * proteinRatio) / 4;
+    double fatGrams = (targetCal * fatRatio) / 9;
+
+    // Tính tổng calo đã nạp từ nhật ký
+    int totalLoggedCalories = 0;
+    for (var log in _todayMealLogs) {
+      totalLoggedCalories += (log['calories'] as num).toInt();
+    }
+    double progressVal = targetCal > 0 ? (totalLoggedCalories / targetCal).clamp(0.0, 1.0) : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 20),
+      decoration: AppTheme.glassDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: 16,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: const PageStorageKey<String>('nutrition_panel'),
+            initiallyExpanded: bmi < 18.5,
+            title: Row(
+              children: [
+                const Icon(Icons.restaurant_menu, color: AppTheme.neonBlue, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    bmi < 18.5
+                        ? '🥗 CHẾ ĐỘ DINH DƯỠNG (BẮT BUỘC CHO THIẾU CÂN)'
+                        : '🥗 CHẾ ĐỘ DINH DƯỠNG ĐỀ XUẤT',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.neonBlue,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Text(
+              'Đã nạp: $totalLoggedCalories / ${targetCal.toStringAsFixed(0)} kcal (${(progressVal * 100).toStringAsFixed(0)}%) | $strategy',
+              style: TextStyle(
+                color: progressVal >= 1.0 ? AppTheme.neonGreen : Colors.white70,
+                fontSize: 11,
+                fontWeight: progressVal >= 1.0 ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            childrenPadding: const EdgeInsets.all(16),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Thanh tiến trình Calo
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'TIẾN TRÌNH DINH DƯỠNG HÔM NAY',
+                          style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          progressVal >= 1.0 ? 'Đã đạt mục tiêu! 🎉' : 'Còn thiếu ${(targetCal - totalLoggedCalories).clamp(0, 5000).toStringAsFixed(0)} kcal',
+                          style: TextStyle(
+                            color: progressVal >= 1.0 ? AppTheme.neonGreen : AppTheme.neonBlue,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progressVal,
+                        backgroundColor: Colors.white10,
+                        valueColor: AlwaysStoppedAnimation<Color>(progressVal >= 1.0 ? AppTheme.neonGreen : AppTheme.neonBlue),
+                        minHeight: 8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              Text(
+                strategyDetail,
+                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'TỶ LỆ DINH DƯỠNG ĐỀ XUẤT',
+                style: TextStyle(
+                  color: AppTheme.neonBlue,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(height: 8),
+              
+              Row(
+                children: [
+                  Expanded(
+                    flex: (carbRatio * 100).round(),
+                    child: Container(
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.neonGreen,
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(4),
+                          bottomLeft: Radius.circular(4),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: (proteinRatio * 100).round(),
+                    child: Container(height: 8, color: AppTheme.neonBlue),
+                  ),
+                  Expanded(
+                    flex: (fatRatio * 100).round(),
+                    child: Container(
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.orange,
+                        borderRadius: BorderRadius.only(
+                          topRight: Radius.circular(4),
+                          bottomRight: Radius.circular(4),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildMacroItem('Tinh bột', '${carbGrams.toStringAsFixed(0)}g', '${(carbRatio*100).toStringAsFixed(0)}%', AppTheme.neonGreen),
+                  _buildMacroItem('Chất đạm', '${proteinGrams.toStringAsFixed(0)}g', '${(proteinRatio*100).toStringAsFixed(0)}%', AppTheme.neonBlue),
+                  _buildMacroItem('Chất béo', '${fatGrams.toStringAsFixed(0)}g', '${(fatRatio*100).toStringAsFixed(0)}%', Colors.orange),
+                ],
+              ),
+              const Divider(color: Colors.white12, height: 24),
+              const Text(
+                'NGUYÊN TẮC DINH DƯỠNG',
+                style: TextStyle(
+                  color: AppTheme.neonBlue,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...guidelines.map((guide) => Padding(
+                padding: const EdgeInsets.only(bottom: 6.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(color: AppTheme.neonBlue, fontWeight: FontWeight.bold)),
+                    Expanded(
+                      child: Text(
+                        guide,
+                        style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              const Divider(color: Colors.white12, height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'THỰC ĐƠN GỢI Ý MẪU',
+                    style: TextStyle(
+                      color: AppTheme.neonBlue,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  Icon(
+                    _isMealPlanExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: AppTheme.neonBlue,
+                    size: 18,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _isMealPlanExpanded = !_isMealPlanExpanded;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.02),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!_isMealPlanExpanded)
+                        const Center(
+                          child: Text(
+                            'Bấm để xem thực đơn chi tiết từng bữa',
+                            style: TextStyle(color: Colors.white60, fontSize: 11, fontStyle: FontStyle.italic),
+                          ),
+                        ),
+                      if (_isMealPlanExpanded) ...[
+                        ...mealList.map((meal) {
+                          final isEaten = _todayMealLogs.any((element) => element['mealKey'] == meal.key);
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                if (isEaten) {
+                                  _todayMealLogs.removeWhere((element) => element['mealKey'] == meal.key);
+                                } else {
+                                  _todayMealLogs.add({
+                                    'mealKey': meal.key,
+                                    'foodName': meal.description,
+                                    'calories': meal.calories,
+                                    'isRecommended': true,
+                                  });
+                                }
+                              });
+                              _saveMealLogsForDay(selectedDayDate);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: isEaten ? AppTheme.neonGreen.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.02),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: isEaten ? AppTheme.neonGreen.withValues(alpha: 0.2) : Colors.white10),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isEaten ? Icons.check_box : Icons.check_box_outline_blank,
+                                    color: isEaten ? AppTheme.neonGreen : Colors.white54,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(meal.timeLabel, style: TextStyle(color: isEaten ? AppTheme.neonGreen : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                                            Text('${meal.calories} kcal', style: const TextStyle(color: AppTheme.neonBlue, fontSize: 11, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(meal.description, style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.4)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                      ]
+                    ],
+                  ),
+                ),
+              ),
+              if (_todayMealLogs.any((element) => element['isRecommended'] == false)) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  'BỮA ĂN TỰ GHI NHẬN',
+                  style: TextStyle(
+                    color: AppTheme.neonBlue,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ..._todayMealLogs.where((element) => element['isRecommended'] == false).map((log) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.02),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(log['foodName'] as String, style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+                      ),
+                      Row(
+                        children: [
+                          Text('+${log['calories']} kcal', style: const TextStyle(color: AppTheme.neonGreen, fontSize: 11.5, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: AppTheme.errorRed, size: 16),
+                            onPressed: () {
+                              setState(() {
+                                _todayMealLogs.removeWhere((element) => element['mealKey'] == log['mealKey']);
+                              });
+                              _saveMealLogsForDay(selectedDayDate);
+                            },
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                )),
+              ],
+              const SizedBox(height: 16),
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: () => _showAddCustomMealDialog(selectedDayDate),
+                  icon: const Icon(Icons.add, size: 14, color: Colors.black),
+                  label: const Text('Ghi nhận món ăn khác', style: TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.neonBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMacroItem(String label, String value, String percent, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text('$value ($percent)', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+}
+
+class RecommendedMeal {
+  final String key;
+  final String timeLabel;
+  final String description;
+  final int calories;
+
+  RecommendedMeal({
+    required this.key,
+    required this.timeLabel,
+    required this.description,
+    required this.calories,
+  });
 }
