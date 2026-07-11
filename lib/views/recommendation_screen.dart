@@ -257,6 +257,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return startOfToday.add(Duration(days: index - todayIndex));
   }
 
+  bool _isDayWorkoutCompleted(int index, bool isLoseWeight, List<Map<String, dynamic>> recommendedList, List<Map<String, dynamic>> adaptiveWeightLossSchedule) {
+    final dayDate = _getSelectedDayDate(index);
+    final List<dynamic> currentExercises = isLoseWeight
+        ? (adaptiveWeightLossSchedule[index]['exercises'] as List<dynamic>? ?? [])
+        : recommendedList;
+    final bool isRest = isLoseWeight && (adaptiveWeightLossSchedule[index]['isRest'] as bool? ?? false);
+    
+    if (isRest) return true; // Ngày nghỉ xem như đã xong
+    if (currentExercises.isEmpty) return false;
+
+    for (var rec in currentExercises) {
+      final ExerciseType type = rec['type'] as ExerciseType;
+      if (!_isExerciseCompletedForDay(type, dayDate)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+
   bool _isExerciseCompletedForDay(ExerciseType type, DateTime day) {
     final dayKey = _getDayKey(day);
     final completionKeys =
@@ -963,15 +983,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       0,
       adaptiveWeightLossSchedule.length - 1,
     );
-    final List<String> weekdays = [
-      'Thứ Hai',
-      'Thứ Ba',
-      'Thứ Tư',
-      'Thứ Năm',
-      'Thứ Sáu',
-      'Thứ Bảy',
-      'Chủ Nhật',
-    ];
     final selectedDayIndex = _selectedDayIndex.clamp(
       0,
       adaptiveWeightLossSchedule.length - 1,
@@ -1284,25 +1295,28 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildGoalChip('lose', '🎯 Giảm cân'),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _buildGoalChip(
-                                  'maintain',
-                                  '⚖️ Giữ dáng',
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B), // Slate 800
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _buildGoalChip('lose', '🎯 Giảm cân'),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _buildGoalChip('build', '💪 Tăng cơ'),
-                              ),
-                            ],
+                                Expanded(
+                                  child: _buildGoalChip('maintain', '⚖️ Giữ dáng'),
+                                ),
+                                Expanded(
+                                  child: _buildGoalChip('build', '💪 Tăng cơ'),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
                           // DỜI LÊN ĐÂY: LỊCH TRÌNH CHỌN THỨ TRONG TUẦN (HIỆN CHO TẤT CẢ CÁC MỤC TIÊU)
                           Row(
                             children: [
@@ -1324,75 +1338,96 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          SizedBox(
-                            height: 70,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: weekdays.length,
-                              itemBuilder: (context, index) {
-                                final isToday = index == safeTodayIndex;
-                                final isSelected = index == selectedDayIndex;
-                                return GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedDayIndex = index;
-                                    });
-                                    final selectedDate = _getSelectedDayDate(index);
-                                    _loadCompletedExercisesForDay(selectedDate);
-                                    _loadMealLogsForDay(selectedDate);
-                                  },
-                                  child: Container(
-                                    width: 92,
-                                    margin: const EdgeInsets.only(right: 8),
-                                    decoration: isSelected
-                                        ? AppTheme.glassDecoration(
-                                            color: AppTheme.neonGreen
-                                                .withValues(alpha: 0.2),
-                                            borderRadius: 14,
-                                          ).copyWith(
-                                            border: Border.all(
-                                              color: AppTheme.neonGreen,
-                                              width: 1.5,
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final shortWeekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+                              final cellWidth = (constraints.maxWidth - (6 * 6)) / 7; // Spacing 6px giữa 7 cột
+                              
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: List.generate(7, (index) {
+                                  final isToday = index == safeTodayIndex;
+                                  final isSelected = index == selectedDayIndex;
+                                  final isCompleted = _isDayWorkoutCompleted(
+                                    index, 
+                                    isLoseWeight, 
+                                    recommendedList, 
+                                    adaptiveWeightLossSchedule
+                                  );
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedDayIndex = index;
+                                      });
+                                      final selectedDate = _getSelectedDayDate(index);
+                                      _loadCompletedExercisesForDay(selectedDate);
+                                      _loadMealLogsForDay(selectedDate);
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 200),
+                                      width: cellWidth,
+                                      height: 60,
+                                      decoration: isSelected
+                                          ? BoxDecoration(
+                                              gradient: const LinearGradient(
+                                                colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)], // Gradient xanh dương hiện đại nổi bật
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.blue.withValues(alpha: 0.25),
+                                                  blurRadius: 6,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            )
+                                          : BoxDecoration(
+                                              color: isToday 
+                                                  ? Colors.white.withValues(alpha: 0.08) 
+                                                  : Colors.white.withValues(alpha: 0.02),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: isToday 
+                                                    ? AppTheme.neonGreen.withValues(alpha: 0.3) 
+                                                    : Colors.white.withValues(alpha: 0.05),
+                                                width: 1,
+                                              ),
                                             ),
-                                          )
-                                        : AppTheme.glassDecoration(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.04,
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            shortWeekdays[index],
+                                            style: TextStyle(
+                                              color: isSelected 
+                                                  ? Colors.white 
+                                                  : (isToday ? AppTheme.neonGreen : Colors.white.withValues(alpha: 0.7)),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
                                             ),
-                                            borderRadius: 14,
                                           ),
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          weekdays[index],
-                                          style: TextStyle(
-                                            color: isSelected
-                                                ? AppTheme.neonGreen
-                                                : Colors.grey,
-                                            fontSize: 10.5,
-                                            fontWeight: isSelected
-                                                ? FontWeight.bold
-                                                : FontWeight.normal,
+                                          const SizedBox(height: 5),
+                                          // Dấu chấm tròn báo hiệu đã hoàn thành bài tập hoặc ngày nghỉ ngơi
+                                          Container(
+                                            width: 6,
+                                            height: 6,
+                                            decoration: BoxDecoration(
+                                              color: isCompleted 
+                                                  ? AppTheme.neonGreen 
+                                                  : (isSelected ? Colors.white54 : Colors.transparent),
+                                              shape: BoxShape.circle,
+                                            ),
                                           ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          isToday ? 'Hôm nay' : '',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                            ),
+                                  );
+                                }),
+                              );
+                            },
                           ),
                           const SizedBox(height: 20),
                           NutritionPanel(
@@ -2039,45 +2074,59 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           ),
         );
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: isSelected
-            ? AppTheme.glassDecoration(
-                color: AppTheme.neonGreen.withValues(alpha: 0.2),
-                borderRadius: 12,
-              ).copyWith(
-                border: Border.all(color: AppTheme.neonGreen, width: 1.5),
-              )
-            : AppTheme.glassDecoration(
-                color: isAllowed 
-                    ? Colors.white.withValues(alpha: 0.04) 
-                    : Colors.white.withValues(alpha: 0.01),
-                borderRadius: 12,
-              ).copyWith(
-                border: Border.all(
-                  color: isSelected 
-                      ? AppTheme.neonGreen 
-                      : (isAllowed ? Colors.transparent : Colors.white10),
-                  width: 1,
+            ? BoxDecoration(
+                gradient: LinearGradient(
+                  colors: goalKey == 'lose'
+                      ? const [Color(0xFFFF6B6B), Color(0xFFFF4500)]   // Đỏ cam – giảm cân
+                      : goalKey == 'maintain'
+                          ? const [Color(0xFF60A5FA), Color(0xFF3B82F6)] // Xanh dương – giữ dáng
+                          : const [Color(0xFF34D399), Color(0xFF059669)], // Xanh lá – tăng cơ
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: (goalKey == 'lose'
+                        ? const Color(0xFFFF6B6B)
+                        : goalKey == 'maintain'
+                            ? const Color(0xFF3B82F6)
+                            : const Color(0xFF34D399)).withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              )
+            : BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
               ),
         child: Center(
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (!isAllowed) ...[
-                const Icon(Icons.lock_outline, size: 12, color: Colors.white38),
+                Icon(
+                  Icons.lock_outline,
+                  size: 13,
+                  color: Colors.white.withValues(alpha: 0.25),
+                ),
                 const SizedBox(width: 4),
               ],
               Text(
                 label,
                 style: TextStyle(
                   color: isSelected 
-                      ? AppTheme.neonGreen 
-                      : (isAllowed ? Colors.white70 : Colors.white30),
+                      ? Colors.white 
+                      : (isAllowed ? Colors.white.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.2)),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 12,
+                  fontSize: 12.5,
                   decoration: isAllowed ? TextDecoration.none : TextDecoration.lineThrough,
+                  decorationColor: Colors.white.withValues(alpha: 0.3),
                 ),
               ),
             ],
@@ -2085,4 +2134,5 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         ),
       ),
     );
-  }}
+  }
+}
