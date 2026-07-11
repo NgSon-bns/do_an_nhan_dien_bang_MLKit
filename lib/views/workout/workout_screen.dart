@@ -14,6 +14,7 @@ import '../../services/pose_analysis/evaluator_factory.dart';
 import '../../services/pose_analysis/alignment_helper.dart';
 import '../../services/pose_detector_service.dart';
 import '../../services/database_service.dart';
+import '../../services/workout_draft_service.dart';
 import 'widgets/camera_stream_view.dart';
 import 'widgets/workout_hud_panel.dart';
 import 'widgets/pose_skeleton_painter.dart';
@@ -41,6 +42,7 @@ class WorkoutScreen extends StatefulWidget {
 class _WorkoutScreenState extends State<WorkoutScreen> {
   late CameraController _cameraController;
   late PoseDetectorService _poseDetectorService;
+  final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
 
   int _currentCameraIndex = 0;
   bool _isCameraInitialized = false;
@@ -663,8 +665,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         : _session.counter;
     final scoreUnit = isDuration ? 'giây' : 'lần';
 
+    final dialogContext = context;
     bool? result = await showDialog<bool>(
-      context: context,
+      context: dialogContext,
       barrierDismissible: false,
       builder: (dialogContext) {
         final isLandscape =
@@ -839,12 +842,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         : _session.counter;
     final scoreUnit = isDuration ? 'giây' : 'lần';
 
+    final dialogContext = context;
     bool? result = await showDialog<bool>(
-      context: context,
+      context: dialogContext,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (builderContext) {
         final isLandscape =
-            MediaQuery.of(context).orientation == Orientation.landscape;
+            MediaQuery.of(builderContext).orientation == Orientation.landscape;
         final spacing = isLandscape ? 8.0 : 16.0;
 
         return AlertDialog(
@@ -934,7 +938,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           actions: [
             if (!_isWorkoutComplete)
               TextButton(
-                onPressed: () => Navigator.pop(context, false),
+                onPressed: () => Navigator.pop(builderContext, false),
                 child: const Text(
                   'Thoát',
                   style: TextStyle(
@@ -945,7 +949,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ),
 
             // Nút "Tập tiếp" chỉ hiện nếu CHƯA hoàn thành
-            if (!_isWorkoutComplete)
+            if (!_isWorkoutComplete) ...[
+              TextButton(
+                onPressed: () async {
+                  await _workoutDraftService.saveDraftWorkout(
+                    exerciseType: widget.exercise.type.name,
+                    exerciseName: widget.exercise.name,
+                    targetCount: widget.targetCount,
+                    noSplit: widget.noSplit,
+                    sourceTag: widget.sourceTag,
+                  );
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Đã lưu tạm bài tập hôm nay.'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                  Navigator.pop(context, null);
+                },
+                child: const Text(
+                  'Lưu tạm',
+                  style: TextStyle(color: AppTheme.neonGreen),
+                ),
+              ),
               TextButton(
                 onPressed: () {
                   _startTimer();
@@ -956,11 +983,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   style: TextStyle(color: Colors.grey),
                 ),
               ),
+            ],
 
             // Nút "Lưu & Thoát" chỉ hiện nếu ĐÃ hoàn thành (hoặc tùy ý logic của bạn)
             if (_isWorkoutComplete)
               ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
+                onPressed: () => Navigator.pop(builderContext, true),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.neonGreen,
                   padding: EdgeInsets.symmetric(

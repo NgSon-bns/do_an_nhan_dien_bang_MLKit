@@ -6,6 +6,7 @@ import '../core/theme/app_theme.dart';
 import '../models/exercise.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/workout_draft_service.dart';
 import 'workout/workout_screen.dart';
 
 class RecommendationScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class RecommendationScreen extends StatefulWidget {
 
 class _RecommendationScreenState extends State<RecommendationScreen> {
   final AuthService _authService = AuthService();
+  final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
 
   double _weight = 0.0;
   double _height = 0.0;
@@ -28,6 +30,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   String _selectedGoal = 'maintain'; // 'lose', 'maintain', 'build'
   int _selectedDayIndex = 0; // Chọn ngày trong lịch trình giảm cân (0 - 6)
   final Map<ExerciseType, bool> _noSplitTargets = {};
+  final Map<ExerciseType, int> _selectedTargets = {};
+  final Map<ExerciseType, bool> _expandedTargetSelectors = {};
   final Map<String, Set<String>> _completedExerciseKeysByDay = {};
 
   @override
@@ -194,11 +198,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return startOfToday.add(Duration(days: index - todayIndex));
   }
 
-  bool _isExerciseCompletedForDay(
-    ExerciseType type,
-    DateTime day,
-   
-  ) {
+  bool _isExerciseCompletedForDay(ExerciseType type, DateTime day) {
     final dayKey = _getDayKey(day);
     final completionKeys =
         _completedExerciseKeysByDay[dayKey] ?? const <String>{};
@@ -208,10 +208,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       if (parts.length < 3) return false;
 
       final keyType = _exerciseTypeFromName(parts[0]);
-      
+
       final isRecommended = parts[2].toLowerCase() == 'recommended';
 
-      return isRecommended && keyType == type ;
+      return isRecommended && keyType == type;
     });
   }
 
@@ -415,23 +415,56 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     int age,
     String goal,
   ) {
-    // 1. Tính BMR & TDEE (Sửa lỗi nhảy vọt bằng .clamp tối thiểu hợp lý)
+    // 1. Tính toán các chỉ số nền tảng
+    double bmi = weight / ((height / 100) * (height / 100));
+
     double bmr = (10 * weight) + (6.25 * height) - (5 * age) - 78;
     if (bmr < 1000) bmr = 1000;
 
-    double tdee = bmr * 1.375;
+    // 2. Tự động điều chỉnh hệ số hoạt động dựa trên thể trạng
+    double activityFactor = 1.2;
+    if (bmi < 18.5) {
+      activityFactor = 1.3;
+    } else if (bmi < 25.0) {
+      activityFactor = (bmr > 1500) ? 1.425 : 1.375;
+    } else if (bmi < 30.0) {
+      activityFactor = 1.3;
+    } else {
+      activityFactor = 1.2;
+    }
 
-    // 2. Tính tổng calo cho buổi tập dựa trên mục tiêu
+    double tdee = bmr * activityFactor;
+    double targetDailyCalories = tdee;
+
+    // 3. Tùy chỉnh mục tiêu Calo nạp vào dựa trên phân loại BMI của bạn
+    if (bmi < 18.5) {
+      targetDailyCalories = tdee + (tdee * 0.15);
+    } else if (bmi < 25.0) {
+      if (goal == 'lose') {
+        targetDailyCalories = tdee - (tdee * 0.15);
+      } else if (goal == 'build') {
+        targetDailyCalories = tdee + (tdee * 0.10);
+      } else {
+        targetDailyCalories = tdee;
+      }
+    } else if (bmi < 30.0) {
+      targetDailyCalories = tdee - (tdee * 0.15);
+    } else {
+      targetDailyCalories = tdee - (tdee * 0.20);
+    }
+
+    if (targetDailyCalories < bmr) targetDailyCalories = bmr;
+
+    // 4. Tính toán calo cho buổi tập (Workout Calories)
     double targetWorkoutCalories = 0.0;
-    if (goal == 'lose') {
-      targetWorkoutCalories = tdee * 0.10;
+    if (bmi >= 25.0 || goal == 'lose') {
+      targetWorkoutCalories = tdee * 0.12;
     } else if (goal == 'build') {
       targetWorkoutCalories = tdee * 0.08;
     } else {
       targetWorkoutCalories = tdee * 0.06;
     }
 
-    // Giới hạn an toàn cho 1 buổi tập home workout
     targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
 
     // Chia đều cho 4 bài tập
@@ -452,6 +485,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
         // Làm tròn đến hàng chục và nới rộng clamp (30s - 240s) để thấy sự khác biệt thể trạng
         int roundedSec = ((sec / 10).round() * 10).clamp(30, 240);
+        if (bmi >= 25.0) {
+          roundedSec = roundedSec.clamp(30, 120);
+        }
         computedTargets[exercise.type] = roundedSec;
       } else {
         // --- BÀI TẬP TÍNH THEO REP (Push-up, Squat, Burpee...) ---
@@ -465,16 +501,30 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         int roundedReps = ((reps / 5).round() * 5);
 
         // Nới rộng khoảng clamp để phân biệt rõ người khỏe/yếu, nặng/nhẹ cân
+        // giới hạn theo ACSM
+        if (bmi >= 25.0) {
+          if (exercise.type == ExerciseType.burpee) {
+            roundedReps = roundedReps.clamp(5, 30);
+          } else if (exercise.type == ExerciseType.pushUp) {
+            roundedReps = roundedReps.clamp(5, 40);
+          } else if (exercise.type == ExerciseType.squat) {
+            roundedReps = roundedReps.clamp(5, 50);
+          } else if (exercise.type == ExerciseType.walkingLunge) {
+            roundedReps = roundedReps.clamp(5, 30);
+          } else {
+            roundedReps = roundedReps.clamp(20, 80);
+          }
+        }
         if (exercise.type == ExerciseType.burpee) {
-          roundedReps = roundedReps.clamp(8, 30);
+          roundedReps = roundedReps.clamp(20, 120);
         } else if (exercise.type == ExerciseType.pushUp) {
-          roundedReps = roundedReps.clamp(10, 40);
+          roundedReps = roundedReps.clamp(40, 160);
         } else if (exercise.type == ExerciseType.squat) {
-          roundedReps = roundedReps.clamp(12, 40);
+          roundedReps = roundedReps.clamp(48, 160);
         } else if (exercise.type == ExerciseType.walkingLunge) {
-          roundedReps = roundedReps.clamp(10, 40);
+          roundedReps = roundedReps.clamp(40, 160);
         } else {
-          roundedReps = roundedReps.clamp(12, 60);
+          roundedReps = roundedReps.clamp(48, 160);
         }
         computedTargets[exercise.type] = roundedReps;
       }
@@ -1434,13 +1484,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final String reason = rec['reason'] as String;
 
     // Tính toán số lượng rep mục tiêu thực tế dựa trên khoa học (để đè lên mục tiêu tĩnh ban đầu)
-    final int target = scientificTargets[type] ?? (rec['target'] as int);
+    final int recommendedTarget =
+        scientificTargets[type] ?? (rec['target'] as int? ?? 0);
+    final int currentTarget = _selectedTargets[type] ?? recommendedTarget;
+    final List<int> availableTargets = {
+      recommendedTarget,
+      if (rec['customTargets'] != null) ...List<int>.from(rec['customTargets']),
+      if (ExerciseDetail.defaultExercises.any((e) => e.type == type))
+        ...((ExerciseDetail.defaultExercises
+                .firstWhere((e) => e.type == type)
+                .isDurationBased)
+            ? [60, 90, 120, 240, 300, 360]
+            : ExerciseDetail.targetOptions),
+    }.toList()..sort();
 
     final bool isNoSplit = _noSplitTargets[type] ?? false;
+    final bool isTargetSelectorExpanded =
+        _expandedTargetSelectors[type] ?? false;
     final bool isCompletedForDay = _isExerciseCompletedForDay(
       type,
       selectedDayDate,
-      
     );
 
     final originalExercise = ExerciseDetail.defaultExercises.firstWhere(
@@ -1486,7 +1549,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Đề xuất AI: $target ${originalExercise.isDurationBased ? "giây giữ" : "lần tập"}',
+                      'Đề xuất AI: $recommendedTarget ${originalExercise.isDurationBased ? "giây giữ" : "lần tập"}',
                       style: const TextStyle(
                         color: AppTheme.neonGreen,
                         fontWeight: FontWeight.bold,
@@ -1499,6 +1562,67 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          if (allowWorkoutAction) ...[
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _expandedTargetSelectors[type] = !(isTargetSelectorExpanded);
+                });
+              },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'CHỌN SỐ LƯỢNG KHÁC:',
+                      style: const TextStyle(
+                        color: AppTheme.neonGreen,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    isTargetSelectorExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    color: AppTheme.neonGreen,
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+            if (isTargetSelectorExpanded) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: availableTargets.map((option) {
+                  final isSelected = currentTarget == option;
+                  return ChoiceChip(
+                    label: Text(
+                      originalExercise.isDurationBased
+                          ? '$option giây'
+                          : '$option lần',
+                    ),
+                    selected: isSelected,
+                    selectedColor: AppTheme.neonGreen,
+                    backgroundColor: Colors.white.withValues(alpha: 0.05),
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.black : Colors.white70,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11.5,
+                    ),
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedTargets[type] = option;
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ],
           Text(
             reason,
             style: TextStyle(
@@ -1583,24 +1707,36 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   onPressed: () async {
+                    final navigatorContext = context;
                     _toggleExerciseCompletedForDay(
                       type,
                       selectedDayDate,
-                      target,
+                      currentTarget,
                     );
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => WorkoutScreen(
-                          exercise: originalExercise,
-                          cameras: widget.cameras,
-                          targetCount: target,
-                          noSplit: isNoSplit,
-                          sourceTag:
-                              'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$target',
-                        ),
-                      ),
+                    await _workoutDraftService.saveDraftWorkout(
+                      exerciseType: originalExercise.type.name,
+                      exerciseName: originalExercise.name,
+                      targetCount: currentTarget,
+                      noSplit: isNoSplit,
+                      sourceTag:
+                          'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$currentTarget',
                     );
+                    final result = navigatorContext.mounted
+                        ? await Navigator.push(
+                            navigatorContext,
+                            MaterialPageRoute(
+                              builder: (context) => WorkoutScreen(
+                                exercise: originalExercise,
+                                cameras: widget.cameras,
+                                targetCount: currentTarget,
+                                noSplit: isNoSplit,
+                                sourceTag:
+                                    'recommended:${selectedDayDate.toIso8601String()}:${type.name}:$currentTarget',
+                              ),
+                            ),
+                          )
+                        : null;
+                    await _workoutDraftService.clearTodayDraftWorkout();
                     if (result == true && mounted) {
                       await _loadCompletedExercisesForDay(selectedDayDate);
                     }

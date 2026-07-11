@@ -19,7 +19,7 @@ class ExerciseDetail {
   final int estimatedDurationSeconds;
   final List<String> benefits;
 
-  static const List<int> targetOptions = [25, 20, 75, 100];
+  static const List<int> targetOptions = [25,50, 75, 100,125,150];
 
   const ExerciseDetail({
     required this.type,

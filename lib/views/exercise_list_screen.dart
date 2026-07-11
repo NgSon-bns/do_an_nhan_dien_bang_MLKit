@@ -9,6 +9,7 @@ import '../services/database_service.dart';
 import 'profile_screen.dart';
 import 'recommendation_screen.dart';
 import '../services/check_in_service.dart';
+import '../services/workout_draft_service.dart';
 import 'workout/workout_screen.dart';
 
 class ExerciseListScreen extends StatefulWidget {
@@ -34,16 +35,28 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
   // Điểm danh hàng ngày
   final CheckInService _checkInService = CheckInService();
+  final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
   int _checkInStreak = 0;
   bool _hasCheckedInToday = false;
   List<Map<String, dynamic>> _weekCheckInStatus = [];
   bool _isLoadingCheckIn = true;
+  Map<String, dynamic>? _todayDraftWorkout;
 
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
     _loadCheckInData();
+    _refreshTodayDraftWorkout();
+  }
+
+  Future<void> _refreshTodayDraftWorkout() async {
+    final draft = await _workoutDraftService.getTodayDraftWorkout();
+    if (mounted) {
+      setState(() {
+        _todayDraftWorkout = draft;
+      });
+    }
   }
 
   Future<void> _loadCheckInData() async {
@@ -93,7 +106,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                 Expanded(
                   child: Text(
                     '${result['message']} (Chuỗi: ${result['streak']})',
-                    style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -240,23 +256,32 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           ),
                         ),
                         const SizedBox(height: 20),
-                        
+
                         // Chiều cao
                         TextFormField(
                           controller: heightController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             labelText: 'Chiều cao (cm)',
                             labelStyle: const TextStyle(color: Colors.grey),
-                            prefixIcon: const Icon(Icons.height, color: AppTheme.neonGreen),
+                            prefixIcon: const Icon(
+                              Icons.height,
+                              color: AppTheme.neonGreen,
+                            ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Colors.white24),
+                              borderSide: const BorderSide(
+                                color: Colors.white24,
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                              borderSide: const BorderSide(
+                                color: AppTheme.neonGreen,
+                              ),
                             ),
                           ),
                           validator: (value) {
@@ -275,19 +300,28 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         // Cân nặng
                         TextFormField(
                           controller: weightController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             labelText: 'Cân nặng (kg)',
                             labelStyle: const TextStyle(color: Colors.grey),
-                            prefixIcon: const Icon(Icons.monitor_weight, color: AppTheme.neonGreen),
+                            prefixIcon: const Icon(
+                              Icons.monitor_weight,
+                              color: AppTheme.neonGreen,
+                            ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Colors.white24),
+                              borderSide: const BorderSide(
+                                color: Colors.white24,
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                              borderSide: const BorderSide(
+                                color: AppTheme.neonGreen,
+                              ),
                             ),
                           ),
                           validator: (value) {
@@ -311,14 +345,21 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           decoration: InputDecoration(
                             labelText: 'Độ tuổi',
                             labelStyle: const TextStyle(color: Colors.grey),
-                            prefixIcon: const Icon(Icons.cake, color: AppTheme.neonGreen),
+                            prefixIcon: const Icon(
+                              Icons.cake,
+                              color: AppTheme.neonGreen,
+                            ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Colors.white24),
+                              borderSide: const BorderSide(
+                                color: Colors.white24,
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.neonGreen),
+                              borderSide: const BorderSide(
+                                color: AppTheme.neonGreen,
+                              ),
                             ),
                           ),
                           validator: (value) {
@@ -349,12 +390,18 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               });
 
                               try {
-                                final double weight = double.parse(weightController.text);
-                                final double height = double.parse(heightController.text);
+                                final double weight = double.parse(
+                                  weightController.text,
+                                );
+                                final double height = double.parse(
+                                  heightController.text,
+                                );
                                 final int age = int.parse(ageController.text);
 
                                 await _authService.updateUserProfile(
-                                  fullName: currentName.isNotEmpty ? currentName : 'Trainer',
+                                  fullName: currentName.isNotEmpty
+                                      ? currentName
+                                      : 'Trainer',
                                   weight: weight,
                                   height: height,
                                   age: age,
@@ -445,7 +492,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         builder: (context) => ProfileScreen(cameras: widget.cameras),
       ),
     ).then((_) {
-      // Reload dữ liệu khi quay lại từ trang cá nhân (đề phòng họ sửa cân nặng/chiều cao/họ tên)
+      // Reload dữ liệu khi quay lại từ trang cá nhân (đề phòng họ  cân nặng/chiều cao/họ tên)
       _loadDashboardData();
     });
   }
@@ -519,15 +566,18 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     // BẢNG ĐIỀU KHIỂN HÀNG NGÀY TRỰC QUAN (DAILY PROGRESS PANEL)
                     Container(
                       padding: const EdgeInsets.all(18),
-                      decoration: AppTheme.glassDecoration(
-                        color: AppTheme.cardBackground.withValues(alpha: 0.4),
-                        borderRadius: 24,
-                      ).copyWith(
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          width: 1,
-                        ),
-                      ),
+                      decoration:
+                          AppTheme.glassDecoration(
+                            color: AppTheme.cardBackground.withValues(
+                              alpha: 0.4,
+                            ),
+                            borderRadius: 24,
+                          ).copyWith(
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              width: 1,
+                            ),
+                          ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -536,7 +586,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             children: [
                               const Row(
                                 children: [
-                                  Icon(Icons.today, color: AppTheme.neonGreen, size: 20),
+                                  Icon(
+                                    Icons.today,
+                                    color: AppTheme.neonGreen,
+                                    size: 20,
+                                  ),
                                   SizedBox(width: 8),
                                   Text(
                                     'Điểm Danh & Chuỗi Tập',
@@ -549,9 +603,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 ],
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.neonGreen.withValues(alpha: 0.12),
+                                  color: AppTheme.neonGreen.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
@@ -573,24 +632,40 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   child: SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(color: AppTheme.neonGreen, strokeWidth: 1.5),
+                                    child: CircularProgressIndicator(
+                                      color: AppTheme.neonGreen,
+                                      strokeWidth: 1.5,
+                                    ),
                                   ),
                                 )
                               : Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: _weekCheckInStatus.map((day) {
                                     final bool isToday = day['isToday'] as bool;
-                                    final bool hasChecked = day['hasChecked'] as bool;
-                                    final bool isFuture = day['isFuture'] as bool;
+                                    final bool hasChecked =
+                                        day['hasChecked'] as bool;
+                                    final bool isFuture =
+                                        day['isFuture'] as bool;
 
                                     Color indicatorColor = Colors.white10;
-                                    Widget indicatorWidget = const SizedBox(width: 10, height: 10);
+                                    Widget indicatorWidget = const SizedBox(
+                                      width: 10,
+                                      height: 10,
+                                    );
 
                                     if (hasChecked) {
-                                      indicatorColor = AppTheme.neonGreen.withValues(alpha: 0.2);
-                                      indicatorWidget = const Icon(Icons.check, color: AppTheme.neonGreen, size: 12);
+                                      indicatorColor = AppTheme.neonGreen
+                                          .withValues(alpha: 0.2);
+                                      indicatorWidget = const Icon(
+                                        Icons.check,
+                                        color: AppTheme.neonGreen,
+                                        size: 12,
+                                      );
                                     } else if (isToday) {
-                                      indicatorColor = Colors.orange.withValues(alpha: 0.2);
+                                      indicatorColor = Colors.orange.withValues(
+                                        alpha: 0.2,
+                                      );
                                       indicatorWidget = Container(
                                         width: 6,
                                         height: 6,
@@ -606,12 +681,19 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                         height: 10,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
-                                          border: Border.all(color: Colors.white24, width: 0.8),
+                                          border: Border.all(
+                                            color: Colors.white24,
+                                            width: 0.8,
+                                          ),
                                         ),
                                       );
                                     } else {
                                       indicatorColor = Colors.white10;
-                                      indicatorWidget = const Icon(Icons.close, color: Colors.white24, size: 10);
+                                      indicatorWidget = const Icon(
+                                        Icons.close,
+                                        color: Colors.white24,
+                                        size: 10,
+                                      );
                                     }
 
                                     return Column(
@@ -619,8 +701,12 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                         Text(
                                           day['name'] as String,
                                           style: TextStyle(
-                                            color: isToday ? AppTheme.neonGreen : Colors.grey,
-                                            fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                                            color: isToday
+                                                ? AppTheme.neonGreen
+                                                : Colors.grey,
+                                            fontWeight: isToday
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
                                             fontSize: 10.5,
                                           ),
                                         ),
@@ -633,10 +719,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                             shape: BoxShape.circle,
                                             border: Border.all(
                                               color: hasChecked
-                                                  ? AppTheme.neonGreen.withValues(alpha: 0.4)
+                                                  ? AppTheme.neonGreen
+                                                        .withValues(alpha: 0.4)
                                                   : isToday
-                                                      ? Colors.orange
-                                                      : Colors.white12,
+                                                  ? Colors.orange
+                                                  : Colors.white12,
                                               width: 0.8,
                                             ),
                                           ),
@@ -646,7 +733,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                     );
                                   }).toList(),
                                 ),
-                          
+
                           if (!_hasCheckedInToday) ...[
                             const SizedBox(height: 16),
                             SizedBox(
@@ -660,12 +747,17 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
                                 ),
                                 icon: const Icon(Icons.edit_calendar, size: 18),
                                 label: const Text(
                                   'ĐIỂM DANH HÔM NAY (+10 XP)',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                             ),
@@ -679,11 +771,15 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   child: SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(color: AppTheme.neonGreen, strokeWidth: 1.5),
+                                    child: CircularProgressIndicator(
+                                      color: AppTheme.neonGreen,
+                                      strokeWidth: 1.5,
+                                    ),
                                   ),
                                 )
                               : Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceAround,
                                   children: [
                                     _buildQuickStatItem(
                                       Icons.local_fire_department,
@@ -726,29 +822,38 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => RecommendationScreen(cameras: widget.cameras),
+                            builder: (context) =>
+                                RecommendationScreen(cameras: widget.cameras),
                           ),
                         ).then((_) {
                           _loadDashboardData();
                         });
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: AppTheme.glassDecoration(
-                          color: AppTheme.neonGreen.withValues(alpha: 0.1),
-                          borderRadius: 20,
-                        ).copyWith(
-                          border: Border.all(
-                            color: AppTheme.neonGreen.withValues(alpha: 0.2),
-                            width: 1,
-                          ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
                         ),
+                        decoration:
+                            AppTheme.glassDecoration(
+                              color: AppTheme.neonGreen.withValues(alpha: 0.1),
+                              borderRadius: 20,
+                            ).copyWith(
+                              border: Border.all(
+                                color: AppTheme.neonGreen.withValues(
+                                  alpha: 0.2,
+                                ),
+                                width: 1,
+                              ),
+                            ),
                         child: Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: AppTheme.neonGreen.withValues(alpha: 0.15),
+                                color: AppTheme.neonGreen.withValues(
+                                  alpha: 0.15,
+                                ),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -774,7 +879,9 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   Text(
                                     'Đề xuất số rep/calo dựa theo chỉ số BMI cơ thể.',
                                     style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.6),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.6,
+                                      ),
                                       fontSize: 10.5,
                                     ),
                                   ),
@@ -792,6 +899,94 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     ),
 
                     const SizedBox(height: 24),
+
+                    if (_todayDraftWorkout != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.orange.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.play_circle_fill,
+                              color: Colors.orange,
+                              size: 26,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Bài đang lưu tạm: ${_todayDraftWorkout!['exerciseName'] ?? _todayDraftWorkout!['exerciseType']}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Mục tiêu: ${_todayDraftWorkout!['targetCount']} ${(_todayDraftWorkout!['exerciseType'] as String?) == 'plank' ? 'giây' : 'lần'}',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.72,
+                                      ),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                final draft = _todayDraftWorkout;
+                                if (draft == null) return;
+                                final exerciseTypeName =
+                                    draft['exerciseType'] as String?;
+                                final exercise = ExerciseDetail.defaultExercises
+                                    .firstWhere(
+                                      (item) =>
+                                          item.type.name == exerciseTypeName,
+                                      orElse: () =>
+                                          ExerciseDetail.defaultExercises.first,
+                                    );
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => WorkoutScreen(
+                                      exercise: exercise,
+                                      cameras: widget.cameras,
+                                      targetCount: (draft['targetCount'] as num)
+                                          .toInt(),
+                                      noSplit:
+                                          draft['noSplit'] as bool? ?? false,
+                                      sourceTag: draft['sourceTag'] as String?,
+                                    ),
+                                  ),
+                                );
+                                await _workoutDraftService
+                                    .clearTodayDraftWorkout();
+                                await _refreshTodayDraftWorkout();
+                              },
+                              child: const Text(
+                                'Tiếp tục',
+                                style: TextStyle(
+                                  color: AppTheme.neonGreen,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     const Text(
                       'BÀI TẬP VỚI AI ĐỒNG HÀNH',
@@ -817,13 +1012,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                   crossAxisSpacing: 14,
                   childAspectRatio: 0.95,
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final exercise = exercises[index];
-                    return _buildExerciseGridTile(context, exercise);
-                  },
-                  childCount: exercises.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final exercise = exercises[index];
+                  return _buildExerciseGridTile(context, exercise);
+                }, childCount: exercises.length),
               ),
             ),
           ],
@@ -860,21 +1052,23 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   }
 
   Widget _buildExerciseGridTile(BuildContext context, ExerciseDetail exercise) {
-    final currentTarget = _selectedTargets[exercise.type] ?? exercise.targetValue;
-    
+    final currentTarget =
+        _selectedTargets[exercise.type] ?? exercise.targetValue;
+
     return GestureDetector(
       onTap: () => _showExerciseDetailsBottomSheet(context, exercise),
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: AppTheme.glassDecoration(
-          color: AppTheme.cardBackground.withValues(alpha: 0.35),
-          borderRadius: 20,
-        ).copyWith(
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
+        decoration:
+            AppTheme.glassDecoration(
+              color: AppTheme.cardBackground.withValues(alpha: 0.35),
+              borderRadius: 20,
+            ).copyWith(
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1,
+              ),
+            ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -888,10 +1082,17 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     color: AppTheme.neonGreen.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(exercise.icon, color: AppTheme.neonGreen, size: 20),
+                  child: Icon(
+                    exercise.icon,
+                    color: AppTheme.neonGreen,
+                    size: 20,
+                  ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.purple.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
@@ -907,7 +1108,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                 ),
               ],
             ),
-            
+
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -963,7 +1164,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     );
   }
 
-  void _showExerciseDetailsBottomSheet(BuildContext context, ExerciseDetail exercise) {
+  void _showExerciseDetailsBottomSheet(
+    BuildContext context,
+    ExerciseDetail exercise,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.cardBackground,
@@ -974,7 +1178,8 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final currentTarget = _selectedTargets[exercise.type] ?? exercise.targetValue;
+            final currentTarget =
+                _selectedTargets[exercise.type] ?? exercise.targetValue;
             final isNoSplit = _noSplitTargets[exercise.type] ?? false;
 
             return Padding(
@@ -1009,7 +1214,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             color: AppTheme.neonGreen.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: Icon(exercise.icon, color: AppTheme.neonGreen, size: 28),
+                          child: Icon(
+                            exercise.icon,
+                            color: AppTheme.neonGreen,
+                            size: 28,
+                          ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -1028,9 +1237,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: Colors.purple.withValues(alpha: 0.15),
+                                      color: Colors.purple.withValues(
+                                        alpha: 0.15,
+                                      ),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -1044,9 +1258,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: Colors.orange.withValues(alpha: 0.15),
+                                      color: Colors.orange.withValues(
+                                        alpha: 0.15,
+                                      ),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -1095,7 +1314,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           children: [
                             const Text(
                               '• ',
-                              style: TextStyle(color: AppTheme.neonGreen, fontSize: 16),
+                              style: TextStyle(
+                                color: AppTheme.neonGreen,
+                                fontSize: 16,
+                              ),
                             ),
                             Expanded(
                               child: Text(
@@ -1133,7 +1355,9 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             label: Text('$option lần'),
                             selected: isSelected,
                             selectedColor: AppTheme.neonGreen,
-                            backgroundColor: Colors.white.withValues(alpha: 0.05),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.05,
+                            ),
                             labelStyle: TextStyle(
                               color: isSelected ? Colors.black : Colors.white70,
                               fontWeight: FontWeight.bold,
@@ -1143,7 +1367,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               setModalState(() {
                                 _selectedTargets[exercise.type] = option;
                               });
-                              setState(() {}); 
+                              setState(() {});
                             },
                           );
                         }).toList(),
@@ -1168,7 +1392,9 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             label: Text('$option giây'),
                             selected: isSelected,
                             selectedColor: AppTheme.neonGreen,
-                            backgroundColor: Colors.white.withValues(alpha: 0.05),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.05,
+                            ),
                             labelStyle: TextStyle(
                               color: isSelected ? Colors.black : Colors.white70,
                               fontWeight: FontWeight.bold,
@@ -1178,7 +1404,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               setModalState(() {
                                 _selectedTargets[exercise.type] = option;
                               });
-                              setState(() {}); 
+                              setState(() {});
                             },
                           );
                         }).toList(),
@@ -1189,7 +1415,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     SwitchListTile(
                       title: const Text(
                         'Tập liên tục (không chia hiệp)',
-                        style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       subtitle: const Text(
                         'Bỏ qua đếm ngược và chia chặng nghỉ giữa giờ.',
@@ -1202,7 +1432,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         setModalState(() {
                           _noSplitTargets[exercise.type] = val;
                         });
-                        setState(() {}); 
+                        setState(() {});
                       },
                     ),
                     const SizedBox(height: 24),
@@ -1210,21 +1440,38 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context); 
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => WorkoutScreen(
-                                exercise: exercise,
-                                cameras: widget.cameras,
-                                targetCount: currentTarget,
-                                noSplit: isNoSplit,
+                        onPressed: () async {
+                          final navigatorContext = context;
+                          if (navigatorContext.mounted) {
+                            Navigator.pop(navigatorContext);
+                          }
+                          await _workoutDraftService.saveDraftWorkout(
+                            exerciseType: exercise.type.name,
+                            exerciseName: exercise.name,
+                            targetCount: currentTarget,
+                            noSplit: isNoSplit,
+                            sourceTag: 'exercise_list',
+                          );
+                          await _refreshTodayDraftWorkout();
+                          if (navigatorContext.mounted) {
+                            await Navigator.push(
+                              navigatorContext,
+                              MaterialPageRoute(
+                                builder: (context) => WorkoutScreen(
+                                  exercise: exercise,
+                                  cameras: widget.cameras,
+                                  targetCount: currentTarget,
+                                  noSplit: isNoSplit,
+                                  sourceTag: 'exercise_list',
+                                ),
                               ),
-                            ),
-                          ).then((_) {
-                            _loadDashboardData();
-                          });
+                            ).then((_) async {
+                              await _workoutDraftService
+                                  .clearTodayDraftWorkout();
+                              await _refreshTodayDraftWorkout();
+                              _loadDashboardData();
+                            });
+                          }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.neonGreen,
@@ -1237,7 +1484,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         icon: const Icon(Icons.play_arrow, size: 20),
                         label: const Text(
                           'BẮT ĐẦU LUYỆN TẬP NGAY',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
