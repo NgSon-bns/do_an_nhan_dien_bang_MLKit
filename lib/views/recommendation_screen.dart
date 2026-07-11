@@ -1303,6 +1303,98 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
+                          // DỜI LÊN ĐÂY: LỊCH TRÌNH CHỌN THỨ TRONG TUẦN (HIỆN CHO TẤT CẢ CÁC MỤC TIÊU)
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.calendar_month,
+                                color: AppTheme.neonGreen,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isLoseWeight ? 'LỊCH TRÌNH GIẢM CÂN THEO NGÀY' : 'LỊCH TRÌNH TẬP LUYỆN & DINH DƯỠNG',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.neonGreen,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 70,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: weekdays.length,
+                              itemBuilder: (context, index) {
+                                final isToday = index == safeTodayIndex;
+                                final isSelected = index == selectedDayIndex;
+                                return GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedDayIndex = index;
+                                    });
+                                    final selectedDate = _getSelectedDayDate(index);
+                                    _loadCompletedExercisesForDay(selectedDate);
+                                    _loadMealLogsForDay(selectedDate);
+                                  },
+                                  child: Container(
+                                    width: 92,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: isSelected
+                                        ? AppTheme.glassDecoration(
+                                            color: AppTheme.neonGreen
+                                                .withValues(alpha: 0.2),
+                                            borderRadius: 14,
+                                          ).copyWith(
+                                            border: Border.all(
+                                              color: AppTheme.neonGreen,
+                                              width: 1.5,
+                                            ),
+                                          )
+                                        : AppTheme.glassDecoration(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.04,
+                                            ),
+                                            borderRadius: 14,
+                                          ),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          weekdays[index],
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? AppTheme.neonGreen
+                                                : Colors.grey,
+                                            fontSize: 10.5,
+                                            fontWeight: isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          isToday ? 'Hôm nay' : '',
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 20),
                           NutritionPanel(
                             weight: _weight,
                             height: _height,
@@ -1318,424 +1410,247 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               _saveMealLogsForDay(selectedDayDate);
                             },
                           ),
-                          const SizedBox(height: 12),
-
-                          // NẾU GIẢM CÂN: HIỂN THỊ LỊCH TRÌNH CHO THỨ HÔM NAY
-                          if (isLoseWeight) ...[
-                            const Row(
-                              children: [
-                                Icon(
-                                  Icons.calendar_month,
-                                  color: AppTheme.neonGreen,
-                                  size: 18,
-                                ),
-                                SizedBox(width: 6),
-                                Text(
-                                  'LỊCH TRÌNH HÔM NAY',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.neonGreen,
-                                    letterSpacing: 1.5,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(height: 8),
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 20),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white10),
                             ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 70,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: weekdays.length,
-                                itemBuilder: (context, index) {
-                                  final isToday = index == safeTodayIndex;
-                                  final isSelected = index == selectedDayIndex;
-                                  return GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedDayIndex = index;
-                                      });
-                                      final selectedDate = _getSelectedDayDate(index);
-                                      _loadCompletedExercisesForDay(selectedDate);
-                                      _loadMealLogsForDay(selectedDate);
-                                    },
-                                    child: Container(
-                                      width: 92,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      decoration: isSelected
-                                          ? AppTheme.glassDecoration(
-                                              color: AppTheme.neonGreen
-                                                  .withValues(alpha: 0.2),
-                                              borderRadius: 14,
-                                            ).copyWith(
-                                              border: Border.all(
-                                                color: AppTheme.neonGreen,
-                                                width: 1.5,
-                                              ),
-                                            )
-                                          : AppTheme.glassDecoration(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.04,
-                                              ),
-                                              borderRadius: 14,
-                                            ),
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            weekdays[index],
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? AppTheme.neonGreen
-                                                  : Colors.grey,
-                                              fontSize: 10.5,
-                                              fontWeight: isSelected
-                                                  ? FontWeight.bold
-                                                  : FontWeight.normal,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            isToday ? 'Hôm nay' : '',
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white10),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'TIÊU ĐIỂM ${weekdays[selectedDayIndex].toUpperCase()}:',
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    selectedDayData['title']
-                                        .toString()
-                                        .toUpperCase(),
-                                    style: const TextStyle(
-                                      color: AppTheme.neonGreen,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ] else ...[
-                            // NẾU GIỮ DÁNG HOẶC TĂNG CƠ: KHÔNG HIỆN LỊCH TRÌNH, CHỈ HIỆN DANH SÁCH KHUYÊN TẬP HÀNG NGÀY
-                            const Text(
-                              'DANH SÁCH BÀI TẬP ĐỀ XUẤT CÁ NHÂN HÓA',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.neonGreen,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                          ],
-                          
-                          // Tiến độ hoàn thành bài tập đề xuất theo ngày
-                          Builder(
-                            builder: (context) {
-                              final List<dynamic> currentExercises = isLoseWeight
-                                  ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
-                                  : recommendedList;
-
-                              final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
-
-                              if (isRest || currentExercises.isEmpty) {
-                                return const SizedBox.shrink();
-                              }
-
-                              int totalExercises = currentExercises.length;
-                              int completedCount = 0;
-                              final List<String> completedList = [];
-                              final List<String> missingList = [];
-
-                              for (var rec in currentExercises) {
-                                final ExerciseType type = rec['type'] as ExerciseType;
-                                final originalExercise = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == type);
-                                final bool isCompleted = _isExerciseCompletedForDay(type, selectedDayDate);
-                                if (isCompleted) {
-                                  completedCount++;
-                                  completedList.add(originalExercise.name);
-                                } else {
-                                  missingList.add(originalExercise.name);
-                                }
-                              }
-
-                              return Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(top: 16),
-                                padding: const EdgeInsets.all(16),
-                                decoration: AppTheme.glassDecoration(
-                                  color: AppTheme.cardBackground.withValues(alpha: 0.25),
-                                  borderRadius: 20,
-                                ).copyWith(
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        const Text(
-                                          'TIẾN ĐỘ THỰC HIỆN',
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Theme(
+                                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                                child: ExpansionTile(
+                                  key: const PageStorageKey<String>('workout_panel'),
+                                  initiallyExpanded: true,
+                                  title: Row(
+                                    children: [
+                                      const Icon(Icons.fitness_center, color: AppTheme.neonGreen, size: 20),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          '💪 LUYỆN TẬP & BÀI TẬP ĐỀ XUẤT',
                                           style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11,
+                                            fontSize: 12,
                                             fontWeight: FontWeight.bold,
+                                            color: AppTheme.neonGreen,
                                             letterSpacing: 0.8,
                                           ),
                                         ),
-                                        Text(
-                                          '$completedCount/$totalExercises bài',
-                                          style: const TextStyle(
-                                            color: AppTheme.neonGreen,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Builder(
+                                    builder: (context) {
+                                      final List<dynamic> currentExercises = isLoseWeight
+                                          ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
+                                          : recommendedList;
+                                      final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+
+                                      if (isRest) {
+                                        return const Text('Hôm nay: Nghỉ ngơi & phục hồi', style: TextStyle(color: Colors.white70, fontSize: 11));
+                                      }
+
+                                      int totalExercises = currentExercises.length;
+                                      int completedCount = 0;
+                                      for (var rec in currentExercises) {
+                                        final ExerciseType type = rec['type'] as ExerciseType;
+                                        if (_isExerciseCompletedForDay(type, selectedDayDate)) {
+                                          completedCount++;
+                                        }
+                                      }
+                                      return Text(
+                                        'Đã tập: $completedCount / $totalExercises bài (${totalExercises > 0 ? ((completedCount / totalExercises) * 100).toStringAsFixed(0) : 0}%)',
+                                        style: TextStyle(
+                                          color: completedCount == totalExercises && totalExercises > 0 ? AppTheme.neonGreen : Colors.white70,
+                                          fontSize: 11,
+                                          fontWeight: completedCount == totalExercises && totalExercises > 0 ? FontWeight.bold : FontWeight.normal,
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: LinearProgressIndicator(
-                                        value: totalExercises > 0 ? (completedCount / totalExercises) : 0.0,
-                                        backgroundColor: Colors.white12,
-                                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.neonGreen),
-                                        minHeight: 6,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    // Danh sách bài đã tập
-                                    RichText(
-                                      text: TextSpan(
-                                        style: const TextStyle(fontSize: 11.5, height: 1.4),
-                                        children: [
-                                          const TextSpan(
-                                            text: 'Đã tập: ',
-                                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-                                          ),
-                                          TextSpan(
-                                            text: completedList.isEmpty
-                                                ? 'Chưa tập bài nào'
-                                                : completedList.join(', '),
-                                            style: TextStyle(
-                                              color: completedList.isEmpty ? Colors.white54 : AppTheme.neonGreen,
-                                              fontWeight: completedList.isEmpty ? FontWeight.normal : FontWeight.bold,
+                                      );
+                                    },
+                                  ),
+                                  childrenPadding: const EdgeInsets.all(16),
+                                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (isLoseWeight) ...[
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        margin: const EdgeInsets.only(bottom: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black12,
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: Colors.white10),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            const Text(
+                                              'TIÊU ĐIỂM HÔM NAY:',
+                                              style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    // Danh sách bài còn thiếu
-                                    RichText(
-                                      text: TextSpan(
-                                        style: const TextStyle(fontSize: 11.5, height: 1.4),
-                                        children: [
-                                          const TextSpan(
-                                            text: 'Còn thiếu: ',
-                                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-                                          ),
-                                          TextSpan(
-                                            text: missingList.isEmpty
-                                                ? 'Không có (Đã hoàn tất!)'
-                                                : missingList.join(', '),
-                                            style: TextStyle(
-                                              color: missingList.isEmpty ? AppTheme.neonBlue : AppTheme.errorRed,
-                                              fontWeight: missingList.isEmpty ? FontWeight.bold : FontWeight.normal,
+                                            Text(
+                                              selectedDayData['title'].toString().toUpperCase(),
+                                              style: const TextStyle(color: AppTheme.neonGreen, fontWeight: FontWeight.bold, fontSize: 12),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Divider(color: Colors.white10, height: 24),
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: completedCount == totalExercises
-                                            ? AppTheme.neonGreen.withValues(alpha: 0.08)
-                                            : AppTheme.errorRed.withValues(alpha: 0.08),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: completedCount == totalExercises
-                                              ? AppTheme.neonGreen.withValues(alpha: 0.15)
-                                              : AppTheme.errorRed.withValues(alpha: 0.15),
+                                          ],
                                         ),
                                       ),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Icon(
-                                            completedCount == totalExercises
-                                                ? Icons.stars_rounded
-                                                : Icons.warning_amber_rounded,
-                                            color: completedCount == totalExercises
-                                                ? AppTheme.neonGreen
-                                                : AppTheme.errorRed,
-                                            size: 18,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(
-                                              completedCount == totalExercises
-                                                  ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập đề xuất của ngày này. Hãy tiếp tục giữ vững phong độ nhé!'
-                                                  : (selectedDayIndex == safeTodayIndex
-                                                      ? 'Hôm nay bạn đang thiếu các bài tập: ${missingList.join(", ")}. Hãy bấm "TẬP NGAY" để hoàn thiện lộ trình nhé!'
-                                                      : 'Bạn đã bỏ lỡ các bài tập: ${missingList.join(", ")} của ngày này. Bạn có thể luyện tập bù ngay!'),
-                                              style: TextStyle(
-                                                color: completedCount == totalExercises
-                                                    ? AppTheme.neonGreen
-                                                    : AppTheme.errorRed,
-                                                fontSize: 11,
-                                                height: 1.4,
-                                                fontWeight: FontWeight.w600,
+                                    ],
+                                    Builder(
+                                      builder: (context) {
+                                        final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+                                        if (isRest) {
+                                          return Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(16),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black12,
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: Colors.white10),
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                const Icon(Icons.spa, color: AppTheme.neonBlue, size: 36),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  'NGÀY NGHỈ NGƠI & PHỤC HỒI',
+                                                  style: TextStyle(color: AppTheme.neonBlue, fontWeight: FontWeight.bold, fontSize: 13),
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Text(
+                                                  selectedDayData['reason'].toString(),
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.4),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }
+                                        return const SizedBox.shrink();
+                                      },
+                                    ),
+                                    Builder(
+                                      builder: (context) {
+                                        final List<dynamic> currentExercises = isLoseWeight
+                                            ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
+                                            : recommendedList;
+                                        final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+                                        if (isRest || currentExercises.isEmpty) {
+                                          return const SizedBox.shrink();
+                                        }
+
+                                        int totalExercises = currentExercises.length;
+                                        int completedCount = 0;
+                                        final List<String> completedList = [];
+                                        final List<String> missingList = [];
+
+                                        for (var rec in currentExercises) {
+                                          final ExerciseType type = rec['type'] as ExerciseType;
+                                          final originalExercise = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == type);
+                                          final bool isCompleted = _isExerciseCompletedForDay(type, selectedDayDate);
+                                          if (isCompleted) {
+                                            completedCount++;
+                                            completedList.add(originalExercise.name);
+                                          } else {
+                                            missingList.add(originalExercise.name);
+                                          }
+                                        }
+
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                const Text(
+                                                  'TIẾN ĐỘ THỰC HIỆN',
+                                                  style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                                                ),
+                                                Text(
+                                                  '$completedCount/$totalExercises bài',
+                                                  style: const TextStyle(color: AppTheme.neonGreen, fontSize: 11, fontWeight: FontWeight.bold),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(4),
+                                              child: LinearProgressIndicator(
+                                                value: (completedCount / totalExercises),
+                                                backgroundColor: Colors.white10,
+                                                valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.neonGreen),
+                                                minHeight: 6,
                                               ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
+                                            const SizedBox(height: 12),
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(10),
+                                              decoration: BoxDecoration(
+                                                color: completedCount == totalExercises
+                                                    ? AppTheme.neonGreen.withValues(alpha: 0.05)
+                                                    : AppTheme.errorRed.withValues(alpha: 0.05),
+                                                borderRadius: BorderRadius.circular(10),
+                                                border: Border.all(
+                                                  color: completedCount == totalExercises
+                                                      ? AppTheme.neonGreen.withValues(alpha: 0.15)
+                                                      : AppTheme.errorRed.withValues(alpha: 0.15),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    completedCount == totalExercises ? Icons.stars_rounded : Icons.warning_amber_rounded,
+                                                    color: completedCount == totalExercises ? AppTheme.neonGreen : AppTheme.errorRed,
+                                                    size: 16,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      completedCount == totalExercises
+                                                          ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập của ngày này!'
+                                                          : 'Bạn đang thiếu bài tập: ${missingList.join(", ")}.',
+                                                      style: TextStyle(
+                                                        color: completedCount == totalExercises ? AppTheme.neonGreen : AppTheme.errorRed,
+                                                        fontSize: 10.5,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Divider(color: Colors.white10, height: 24),
+                                            ...currentExercises.map((rec) {
+                                              return _buildExerciseCard(
+                                                rec as Map<String, dynamic>,
+                                                scientificTargets,
+                                                caloriesPerExercise,
+                                                selectedDayIndex == safeTodayIndex,
+                                                selectedDayDate,
+                                              );
+                                            }),
+                                          ],
+                                        );
+                                      },
                                     ),
                                   ],
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                         ],
                       ),
                     ),
                   ),
-
-                  // 5. HIỂN THỊ DANH SÁCH BÀI TẬP ĐỀ XUẤT HOẶC KẾ HOẠCH NGÀY
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                    sliver: _buildExercisesSliverList(
-                      isLoseWeight,
-                      selectedDayData,
-                      recommendedList,
-                      scientificTargets,
-                      caloriesPerExercise,
-                      selectedDayIndex == safeTodayIndex,
-                      selectedDayDate,
-                    ),
-                  ),
                 ],
               ),
       ),
     );
-  }
-
-  // Widget xây dựng danh sách bài tập động dựa trên goal
-  Widget _buildExercisesSliverList(
-    bool isLoseWeight,
-    Map<String, dynamic> selectedDayData,
-    List<Map<String, dynamic>> recommendedList,
-    Map<ExerciseType, int> scientificTargets,
-    double caloriesPerExercise,
-    bool allowWorkoutAction,
-    DateTime selectedDayDate,
-  ) {
-    if (isLoseWeight) {
-      if (selectedDayData['isRest'] == true) {
-        return SliverToBoxAdapter(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: AppTheme.glassDecoration(
-              color: AppTheme.neonBlue.withValues(alpha: 0.1),
-              borderRadius: 20,
-            ),
-            child: Column(
-              children: [
-                const Icon(Icons.spa, color: AppTheme.neonBlue, size: 40),
-                const SizedBox(height: 12),
-                const Text(
-                  'NGÀY NGHỈ NGƠI & PHỤC HỒI',
-                  style: TextStyle(
-                    color: AppTheme.neonBlue,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  selectedDayData['reason'].toString(),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-
-      final List<dynamic> dayExercises =
-          selectedDayData['exercises'] as List<dynamic>;
-      return SliverList(
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final rec = dayExercises[index] as Map<String, dynamic>;
-          return _buildExerciseCard(
-            rec,
-            scientificTargets,
-            caloriesPerExercise,
-            allowWorkoutAction,
-            selectedDayDate,
-          );
-        }, childCount: dayExercises.length),
-      );
-    } else {
-      return SliverList(
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final rec = recommendedList[index];
-          return _buildExerciseCard(
-            rec,
-            scientificTargets,
-            caloriesPerExercise,
-            allowWorkoutAction,
-            selectedDayDate,
-          );
-        }, childCount: recommendedList.length),
-      );
-    }
   }
 
   // Thẻ bài tập đề xuất dùng chung
