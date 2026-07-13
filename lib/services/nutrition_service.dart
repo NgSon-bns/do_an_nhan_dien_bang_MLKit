@@ -4,7 +4,7 @@ class NutritionService {
   static List<RecommendedMeal> getRecommendedMeals(double bmi, int dayOfWeek, double targetCal) {
     List<RecommendedMeal> list = [];
     if (bmi < 18.5) {
-      // 6 bữa cho người thiếu cân
+      // 6 bữa cho người thiếu cân (cần tăng cân, thặng dư năng lượng)
       final int cBreakfast = (targetCal * 0.22).round();
       final int cSnackAm = (targetCal * 0.08).round();
       final int cLunch = (targetCal * 0.28).round();
@@ -33,7 +33,7 @@ class NutritionService {
             RecommendedMeal(key: 'snack_night', timeLabel: 'Bữa phụ tối (21:30)', description: '1 cốc sữa ấm + 3 cái bánh quy lúa mạch', calories: cSnackNight),
           ];
           break;
-        case 2: // Thứ Tư
+        case 2: // Thứ Tư (Ngày nghỉ ngơi - phục hồi cơ nhẹ nhàng)
           list = [
             RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Xôi xéo chả lụa phi hành mỡ + 1 ly sữa tươi', calories: cBreakfast),
             RecommendedMeal(key: 'snack_am', timeLabel: 'Bữa phụ sáng (09:30)', description: '1 củ khoai lang mật nướng lớn + đậu phộng luộc', calories: cSnackAm),
@@ -63,7 +63,7 @@ class NutritionService {
             RecommendedMeal(key: 'snack_night', timeLabel: 'Bữa phụ tối (21:30)', description: 'Một nắm nhỏ hạt óc chó/macca dầm mật ong', calories: cSnackNight),
           ];
           break;
-        default: // Cuối tuần (Thứ 7 & Chủ Nhật)
+        case 5: // Thứ Bảy
           list = [
             RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Mì Quảng tôm thịt trứng cút lớn + sữa bắp thơm', calories: cBreakfast),
             RecommendedMeal(key: 'snack_am', timeLabel: 'Bữa phụ sáng (09:30)', description: 'Phô mai miếng + 1 quả táo chín ngọt', calories: cSnackAm),
@@ -73,9 +73,19 @@ class NutritionService {
             RecommendedMeal(key: 'snack_night', timeLabel: 'Bữa phụ tối (21:30)', description: '1 ly sữa yến mạch ấm pha mật ong', calories: cSnackNight),
           ];
           break;
+        default: // Chủ Nhật (Ngày nghỉ ngơi - phục hồi cơ nhẹ nhàng)
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Bún bò Huế giò khoanh lớn + 1 ly nước mía', calories: cBreakfast),
+            RecommendedMeal(key: 'snack_am', timeLabel: 'Bữa phụ sáng (09:30)', description: '1 hộp sữa chua uống trái cây + hạt dẻ', calories: cSnackAm),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '2 bát cơm + 150g thịt kho tàu trứng cút + canh rau má', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '2 cái bánh tart trứng nóng hổi + sữa đậu xanh', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1.5 bát cơm + 150g chả cá thác lác vân mây + canh cá hồi nấu ngót', calories: cDinner),
+            RecommendedMeal(key: 'snack_night', timeLabel: 'Bữa phụ tối (21:30)', description: '1 ly sữa ấm nguyên kem mật ong trước ngủ', calories: cSnackNight),
+          ];
+          break;
       }
     } else if (bmi < 25.0) {
-      // 4 bữa cho người bình thường
+      // 4 bữa cho người bình thường (cân đối, tập trung giữ dáng hoặc tăng cơ nạc nhẹ)
       final int cBreakfast = (targetCal * 0.25).round();
       final int cLunch = (targetCal * 0.35).round();
       final int cSnackPm = (targetCal * 0.12).round();
@@ -98,15 +108,23 @@ class NutritionService {
             RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g bò xào hành tây + canh khoai tây cà rốt', calories: cDinner),
           ];
           break;
-        case 2: // Thứ Tư
+        case 2: // Thứ Tư (Nghỉ ngơi)
           list = [
-            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Bánh mì sandwich phết bơ bơ đậu phộng + 1 ly sữa đậu nành', calories: cBreakfast),
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Bánh mì sandwich phết bơ đậu phộng + 1 ly sữa đậu nành', calories: cBreakfast),
             RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm + 150g thịt thăn lợn rim nhạt + cải thảo luộc', calories: cLunch),
             RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: 'Salad hoa quả trộn sữa chua Hy Lạp', calories: cSnackPm),
             RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g cá basa sốt dầu hào + canh cải thìa thịt băm', calories: cDinner),
           ];
           break;
-        default: // Các ngày khác
+        case 3: // Thứ Năm
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Phở gà ta thơm ngọt + 1 ly nước cam nguyên chất ít đường', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm + 150g bò cuốn lá lốt + canh bí đỏ nấu tôm', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 hộp sữa chua uống men sống + 1 nắm hạt hạnh nhân', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g thịt viên sốt nấm + rau cải ngọt luộc', calories: cDinner),
+          ];
+          break;
+        case 4: // Thứ Sáu
           list = [
             RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 bát bún sườn heo nhiều rau xanh + nước lọc ấm', calories: cBreakfast),
             RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm gạo lứt + 150g mực xào cần tỏi + canh cải ngọt', calories: cLunch),
@@ -114,9 +132,25 @@ class NutritionService {
             RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g đậu phụ nhồi thịt canh cải cúc', calories: cDinner),
           ];
           break;
+        case 5: // Thứ Bảy
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Hủ tiếu Nam Vang thanh đạm + 1 quả quýt ngọt', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm + 150g cá điêu hồng hấp gừng + canh bí đao thịt băm', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '2 lát khoai lang luộc + 1 ly nước ép dứa', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g sườn non nướng mật ong + salad dầu giấm', calories: cDinner),
+          ];
+          break;
+        default: // Chủ Nhật (Nghỉ ngơi)
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Cháo sườn sụn yến mạch + 1 ly sữa hạt sen', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1.5 bát cơm + 150g gà hấp lá chanh + canh cua rau đay', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 cốc thạch rau câu dừa thanh mát', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1 bát cơm + 150g cá lóc kho tộ + canh chua miền Tây', calories: cDinner),
+          ];
+          break;
       }
     } else {
-      // 4 bữa cho người béo phì / thừa cân
+      // 4 bữa cho người thừa cân / béo phì (cần thâm hụt calo, giảm carbohydrate nhanh, giàu protein, chất xơ)
       final int cBreakfast = (targetCal * 0.25).round();
       final int cLunch = (targetCal * 0.35).round();
       final int cSnackPm = (targetCal * 0.08).round();
@@ -139,12 +173,44 @@ class NutritionService {
             RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm + 150g ức gà nướng nghệ + bông cải luộc', calories: cDinner),
           ];
           break;
-        default: // Các ngày khác
+        case 2: // Thứ Tư (Nghỉ ngơi)
           list = [
             RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Khoai lang luộc + 1 cốc sữa đậu nành không đường', calories: cBreakfast),
             RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g tôm hấp sả + đĩa rau muống luộc lớn', calories: cLunch),
             RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 hộp sữa chua Hy Lạp không đường', calories: cSnackPm),
             RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g cá hồi áp chảo + canh cải thìa canh nhạt', calories: cDinner),
+          ];
+          break;
+        case 3: // Thứ Năm
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 bát canh bánh đa cua đồng nhiều rau xanh + nước lọc', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g ức gà xào ớt chuông nấm đông cô', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 quả lê thanh ngọt nhiều nước', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g đậu hũ hấp trứng thịt băm + xà lách', calories: cDinner),
+          ];
+          break;
+        case 4: // Thứ Sáu
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 bát súp ngô gà nấm thanh đạm + 1 quả chuối nhỏ', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g cá quả nướng giấy bạc + rau muống luộc', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 nắm nhỏ hạt bí ngô rang khô (15g)', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g thịt heo nạc luộc + canh rau ngót nấu tôm băm', calories: cDinner),
+          ];
+          break;
+        case 5: // Thứ Bảy
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: '1 đĩa bánh cuốn chay ít mỡ hành + 1 quả cam ngọt', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g bò xào cần tây tỏi tây', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 quả bưởi hồng 3 múi mọng nước', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g tôm rim đậu phụ + canh bí đao tôm nõn', calories: cDinner),
+          ];
+          break;
+        default: // Chủ Nhật (Nghỉ ngơi)
+          list = [
+            RecommendedMeal(key: 'breakfast', timeLabel: 'Bữa sáng (07:00)', description: 'Bắp ngô ngọt luộc + 1 cốc sữa đậu đen không đường', calories: cBreakfast),
+            RecommendedMeal(key: 'lunch', timeLabel: 'Bữa trưa (12:00)', description: '1 bát cơm gạo lứt + 150g lườn gà áp chảo sốt chanh leo + măng tây', calories: cLunch),
+            RecommendedMeal(key: 'snack_pm', timeLabel: 'Bữa phụ chiều (15:30)', description: '1 hộp thạch rau câu rau má ít đường', calories: cSnackPm),
+            RecommendedMeal(key: 'dinner', timeLabel: 'Bữa tối (19:00)', description: '1/2 bát cơm gạo lứt + 150g cá thu rim nước dừa xiêm nhạt + cải xanh', calories: cDinner),
           ];
           break;
       }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,7 +44,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     super.initState();
     _selectedDayIndex = DateTime.now().weekday - 1;
     _loadUserProfile();
-    
+
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
     _loadMealLogsForDay(selectedDate);
@@ -64,13 +64,15 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final dayKey = _getDayKey(day);
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('meal_logs_$dayKey');
-    
+
     if (raw != null && raw.isNotEmpty) {
       try {
         final decoded = jsonDecode(raw) as List<dynamic>;
         if (mounted) {
           setState(() {
-            _todayMealLogs = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            _todayMealLogs = decoded
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
           });
         }
       } catch (e) {
@@ -137,7 +139,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           // Đọc mục tiêu tập luyện từ database nếu có lưu trước đó
           final String? dbGoal = profile['goal'] ?? profile['fitness_goal'];
           double bmi = _weight / ((_height / 100) * (_height / 100));
-          
+
           if (bmi >= 25.0) {
             _selectedGoal = 'lose';
           } else if (bmi < 18.5) {
@@ -177,6 +179,20 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     });
 
     try {
+      double newBmi = newHeight > 0
+          ? newWeight / ((newHeight / 100) * (newHeight / 100))
+          : 0.0;
+      String nextGoal = _selectedGoal;
+      if (!isGoalAllowedForBmi(_selectedGoal, newBmi)) {
+        if (newBmi >= 25.0) {
+          nextGoal = 'lose';
+        } else if (newBmi < 18.5) {
+          nextGoal = 'build';
+        } else {
+          nextGoal = 'maintain';
+        }
+      }
+
       if (_isSupabaseInitialized) {
         final client = Supabase.instance.client;
         final userId = client.auth.currentUser?.id;
@@ -193,6 +209,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         _weight = newWeight;
         _age = newAge;
       });
+
+      if (nextGoal != _selectedGoal) {
+        await _updateGoal(nextGoal);
+      }
     } catch (e) {
       debugPrint('Lỗi cập nhật chỉ số thể chất: $e');
       if (mounted) {
@@ -257,13 +277,16 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return startOfToday.add(Duration(days: index - todayIndex));
   }
 
-  bool _isDayWorkoutCompleted(int index, bool isLoseWeight, List<Map<String, dynamic>> recommendedList, List<Map<String, dynamic>> adaptiveWeightLossSchedule) {
+  bool _isDayWorkoutCompleted(
+    int index,
+    List<Map<String, dynamic>> adaptiveSchedule,
+  ) {
     final dayDate = _getSelectedDayDate(index);
-    final List<dynamic> currentExercises = isLoseWeight
-        ? (adaptiveWeightLossSchedule[index]['exercises'] as List<dynamic>? ?? [])
-        : recommendedList;
-    final bool isRest = isLoseWeight && (adaptiveWeightLossSchedule[index]['isRest'] as bool? ?? false);
-    
+    final selectedDayData = adaptiveSchedule[index];
+    final List<dynamic> currentExercises =
+        selectedDayData['exercises'] as List<dynamic>? ?? [];
+    final bool isRest = selectedDayData['isRest'] as bool? ?? false;
+
     if (isRest) return true; // Ngày nghỉ xem như đã xong
     if (currentExercises.isEmpty) return false;
 
@@ -275,7 +298,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
     return true;
   }
-
 
   bool _isExerciseCompletedForDay(ExerciseType type, DateTime day) {
     final dayKey = _getDayKey(day);
@@ -370,16 +392,22 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       completedForDay.remove(completionKey);
     } else {
       completedForDay.add(completionKey);
-      
+
       if (isManual) {
         try {
           await DatabaseService().saveWorkoutResult(
             exerciseType: type.name,
             repsCount: targetCount,
-            durationSeconds: type == ExerciseType.plank || type == ExerciseType.jumpingJack ? targetCount : 45,
-            caloriesBurned: type == ExerciseType.plank ? targetCount * 0.1 : targetCount * 0.4,
+            durationSeconds:
+                type == ExerciseType.plank || type == ExerciseType.jumpingJack
+                ? targetCount
+                : 45,
+            caloriesBurned: type == ExerciseType.plank
+                ? targetCount * 0.1
+                : targetCount * 0.4,
             incorrectPostures: 0,
-            sourceTag: 'recommended:${day.toIso8601String()}:${type.name}:$targetCount',
+            sourceTag:
+                'recommended:${day.toIso8601String()}:${type.name}:$targetCount',
           );
         } catch (e) {
           debugPrint('Lỗi đồng bộ tick bài tập: $e');
@@ -596,7 +624,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         int roundedReps = ((reps / 5).round() * 5);
 
         // Nới rộng khoảng clamp để phân biệt rõ người khỏe/yếu, nặng/nhẹ cân
-        // giới hạn theo ACSM
+        // giới hạn theo ACSM khuyến nghị hoa kì
         if (bmi >= 25.0) {
           if (exercise.type == ExerciseType.burpee) {
             roundedReps = roundedReps.clamp(5, 30);
@@ -641,279 +669,323 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       0.0, // Bài tập giữ trạng thái (tính theo giây, không tính rep)
   };
 
-  // A. ĐỀ XUẤT BÀI TẬP ĐỘNG THEO THỂ TRẠNG (BMI & TUỔI)
-  List<Map<String, dynamic>> _generateAdaptiveDailyExercises(
-    double bmi,
-    int age,
+  // B. SINH LỊCH TRÌNH 7 NGÀY THÍCH ỨNG THEO MỤC TIÊU & THỂ TRẠNG
+  List<Map<String, dynamic>> _generateAdaptiveSchedule(
     String goal,
-  ) {
-    bool isOlder = age >= 45;
-    bool isOverweight = bmi >= 25.0;
-    bool isUnderweight = bmi < 18.5;
-
-    // 1. Thể trạng THIẾU CÂN: Tập trung xây dựng cơ bắp (strength), loại bỏ hoàn toàn cardio nhảy quá mức
-    if (isUnderweight) {
-      return [
-        {
-          'type': ExerciseType.pushUp,
-          'reason':
-              'Chống đẩy tập trung lực đẩy, kích thích các thớ cơ ngực và tay vai nở nang ở cơ thể gầy.',
-        },
-        {
-          'type': ExerciseType.squat,
-          'reason':
-              'Squat đùi mông giúp xây dựng khối cơ nạc lớn nhất cơ thể, hỗ trợ tăng cân và tăng cơ bền vững.',
-        },
-        {
-          'type': ExerciseType.walkingLunge,
-          'reason':
-              'Walking Lunge tăng khả năng chịu lực độc lập từng chân, rèn sức mạnh đối xứng khớp chân.',
-        },
-        {
-          'type': ExerciseType.plank,
-          'reason':
-              'Plank giúp săn chắc và khỏe cơ cốt lõi lưng bụng, tạo vóc dáng đứng thẳng đẹp hơn.',
-        },
-      ];
-    }
-
-    // 2. Thể trạng LỚN TUỔI (Age >= 45): Tránh Burpee hoàn toàn để bảo vệ tim mạch và khớp gối chịu lực đột ngột
-    if (isOlder) {
-      return [
-        {
-          'type': ExerciseType.plank,
-          'reason':
-              'Plank là bài tập core an toàn và tối ưu tuyệt đối cho người trung niên, không lo xóc đĩa đệm lưng.',
-        },
-        {
-          'type': ExerciseType.squat,
-          'reason':
-              'Squat nhẹ nhàng giúp kích thích dịch khớp gối, tăng cường cơ nâng đỡ đùi cho người lớn tuổi.',
-        },
-        {
-          'type': ExerciseType.walkingLunge,
-          'reason':
-              'Lunge chậm bước giúp tăng khả năng giữ thăng bằng và dẻo dai cơ hông đùi.',
-        },
-        {
-          'type': ExerciseType.pushUp,
-          'reason':
-              'Chống đẩy để duy trì lực cơ ngực vai đẩy khỏe mạnh cho cơ thể người lớn tuổi.',
-        },
-      ];
-    }
-
-    // 3. Thể trạng THỪA CÂN/BÉO PHÌ: Tránh Burpee để bảo vệ khớp gối chịu áp lực cơ thể nặng
-    if (isOverweight) {
-      if (goal == 'lose') {
-        return [
-          {
-            'type': ExerciseType.jumpingJack,
-            'reason':
-                'Jumping Jack là bài tập nhảy nhẹ nhàng hơn Burpee, giúp đốt calo hiệu quả và an toàn cho người thừa cân.',
-          },
-          {
-            'type': ExerciseType.squat,
-            'reason':
-                'Squat tăng lực cơ đùi mông nhằm bảo vệ khớp gối khỏi gánh nặng trọng lượng cơ thể.',
-          },
-          {
-            'type': ExerciseType.plank,
-            'reason':
-                'Plank tăng sức bền core bụng để tránh võng lưng, giảm đau mỏi lưng dưới do mỡ bụng.',
-          },
-          {
-            'type': ExerciseType.pushUp,
-            'reason':
-                'Chống đẩy tập trung calo thân trên, bảo toàn gối khỏi phản lực tiếp đất.',
-          },
-        ];
-      }
-    }
-
-    // 4. Thể trạng CÂN ĐỐI thông thường
-    if (goal == 'lose') {
-      return [
-        {
-          'type': ExerciseType.jumpingJack,
-          'reason':
-              'Nhảy Jumping Jack nhanh liên tục giúp kích hoạt quá trình tiêu hao năng lượng toàn thân.',
-        },
-        {
-          'type': ExerciseType.burpee,
-          'reason':
-              'Burpee đốt calo cực đỉnh, giúp cơ thể tăng tốc tiêu mỡ thừa bền bỉ sau tập.',
-        },
-        {
-          'type': ExerciseType.squat,
-          'reason':
-              'Squat đùi mông kích hoạt giải phóng calo qua các nhóm cơ lớn nhất cơ thể.',
-        },
-        {
-          'type': ExerciseType.plank,
-          'reason':
-              'Plank siết chặt bụng để tạo cơ bụng phẳng và săn chắc cơ liên sườn.',
-        },
-      ];
-    } else if (goal == 'build') {
-      return [
-        {
-          'type': ExerciseType.pushUp,
-          'reason':
-              'Chống đẩy tạo phom cơ ngực vai nở rộng và bắp tay sau sắc nét.',
-        },
-        {
-          'type': ExerciseType.squat,
-          'reason':
-              'Squat kích hoạt sản sinh hocmon nam tăng trưởng để hỗ trợ tăng cơ toàn diện.',
-        },
-        {
-          'type': ExerciseType.walkingLunge,
-          'reason':
-              'Lunge bước đi dồn lực độc lập từng đùi, giúp cơ mông săn chắc bộc phá.',
-        },
-        {
-          'type': ExerciseType.burpee,
-          'reason':
-              'Burpee nâng cao sức mạnh bộc phát toàn thân và thể lực bắp thịt chịu đựng.',
-        },
-      ];
-    } else {
-      // Giữ dáng (maintain) thông thường
-      return [
-        {
-          'type': ExerciseType.plank,
-          'reason':
-              'Giữ Plank đều đặn hàng ngày để giữ cơ bụng phẳng lỳ và thẳng đứng cột sống.',
-        },
-        {
-          'type': ExerciseType.walkingLunge,
-          'reason':
-              'Walking Lunge làm săn gọn mông đùi và cải thiện khả năng giữ thăng bằng di động.',
-        },
-        {
-          'type': ExerciseType.pushUp,
-          'reason':
-              'Chống đẩy vừa sức duy trì phom ngực và trương lực cơ tay khỏe khoắn.',
-        },
-        {
-          'type': ExerciseType.squat,
-          'reason':
-              'Squat để giữ khớp chân linh hoạt và săn chắc vùng hông dưới.',
-        },
-      ];
-    }
-  }
-
-  // B. SINH LỊCH TRÌNH GIẢM CÂN 7 NGÀY THÍCH ỨNG THEO THỂ TRẠNG (BMI & TUỔI)
-  List<Map<String, dynamic>> _generateAdaptiveWeightLossSchedule(
     double bmi,
     int age,
   ) {
     bool avoidBurpee = (bmi >= 25.0 || age >= 45);
 
-    return [
-      {
-        'day': 1,
-        'title': 'Đốt mỡ khởi động',
-        'isRest': false,
-        'exercises': [
-          {
-            'type': ExerciseType.jumpingJack,
-            'reason':
-                'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch.',
-          },
-          {
-            'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
-            'reason': avoidBurpee
-                ? 'Chống đẩy giúp đốt calo thân trên an toàn và tránh gây lực nén tiếp đất đột ngột lên khớp chân.'
-                : 'Burpee bộc phát giúp đẩy tối đa hiệu suất tiêu hao năng lượng trong ngày khởi đầu.',
-          },
-        ],
-      },
-      {
-        'day': 2,
-        'title': 'Kích hoạt bụng core',
-        'isRest': false,
-        'exercises': [
-          {
-            'type': ExerciseType.plank,
-            'reason':
-                'Plank để củng cố sức mạnh nhóm cơ core trung tâm bụng lưng.',
-          },
-          {
-            'type': ExerciseType.squat,
-            'reason':
-                'Squat đùi mông để tăng khả năng đốt mỡ thụ động thông qua cơ bắp chân.',
-          },
-        ],
-      },
-      {
-        'day': 3,
-        'title': 'Nghỉ ngơi phục hồi',
-        'isRest': true,
-        'reason':
-            'Hãy thực hiện các động tác giãn cơ nhẹ nhàng hoặc đi bộ thư giãn để giải phóng axit lactic và giúp cơ bắp hồi phục.',
-      },
-      {
-        'day': 4,
-        'title': 'Săn chắc chân mông',
-        'isRest': false,
-        'exercises': [
-          {
-            'type': ExerciseType.jumpingJack,
-            'reason':
-                'Jumping Jack tăng cường hoạt động hô hấp và tuần hoàn tim mạch.',
-          },
-          {
-            'type': ExerciseType.walkingLunge,
-            'reason':
-                'Lunge bước đi săn chắc đùi mông và cải thiện tính thăng bằng khớp hông.',
-          },
-        ],
-      },
-      {
-        'day': 5,
-        'title': 'Sức mạnh & Bộc phát',
-        'isRest': false,
-        'exercises': [
-          {
-            'type': ExerciseType.squat,
-            'reason':
-                'Gánh đùi Squat sâu giúp tăng cường cơ lực và bôi trơn ổ khớp chân.',
-          },
-          {
-            'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
-            'reason': avoidBurpee
-                ? 'Chống đẩy rèn sức chịu đựng cơ đẩy ngực tay mà không gây quá tải cho khớp gối.'
-                : 'Burpee cường độ cao giúp tối ưu hóa calo thâm hụt.',
-          },
-        ],
-      },
-      {
-        'day': 6,
-        'title': 'Siết eo & Sức bền',
-        'isRest': false,
-        'exercises': [
-          {
-            'type': ExerciseType.plank,
-            'reason':
-                'Thử thách Plank giữ thẳng lưng giúp định hình vòng eo thon nhỏ.',
-          },
-          {
-            'type': ExerciseType.pushUp,
-            'reason': 'Chống đẩy duy trì phom ngực và vai săn chắc.',
-          },
-        ],
-      },
-      {
-        'day': 7,
-        'title': 'Nghỉ ngơi phục hồi',
-        'isRest': true,
-        'reason':
-            'Hoàn thành chu kỳ 7 ngày tập luyện. Hãy uống đủ nước, ăn đủ chất và ngủ sâu để chuẩn bị cho chu kỳ tiếp theo hiệu quả hơn!',
-      },
-    ];
+    if (goal == 'lose') {
+      return [
+        {
+          'day': 1,
+          'title': 'Đốt mỡ khởi động',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.jumpingJack,
+              'reason':
+                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch.',
+            },
+            {
+              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
+              'reason': avoidBurpee
+                  ? 'Chống đẩy giúp đốt calo thân trên an toàn và tránh gây lực nén tiếp đất đột ngột lên khớp chân.'
+                  : 'Burpee bộc phát giúp đẩy tối đa hiệu suất tiêu hao năng lượng trong ngày khởi đầu.',
+            },
+          ],
+        },
+        {
+          'day': 2,
+          'title': 'Kích hoạt bụng core',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Plank để củng cố sức mạnh nhóm cơ core trung tâm bụng lưng.',
+            },
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Squat đùi mông để tăng khả năng đốt mỡ thụ động thông qua cơ bắp chân.',
+            },
+          ],
+        },
+        {
+          'day': 3,
+          'title': 'Nghỉ ngơi phục hồi',
+          'isRest': true,
+          'reason':
+              'Hãy thực hiện các động tác giãn cơ nhẹ nhàng hoặc đi bộ thư giãn để giải phóng axit lactic và giúp cơ bắp hồi phục.',
+        },
+        {
+          'day': 4,
+          'title': 'Săn chắc chân mông',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.jumpingJack,
+              'reason':
+                  'Jumping Jack tăng cường hoạt động hô hấp và tuần hoàn tim mạch.',
+            },
+            {
+              'type': ExerciseType.walkingLunge,
+              'reason':
+                  'Lunge bước đi săn chắc đùi mông và cải thiện tính thăng bằng khớp hông.',
+            },
+          ],
+        },
+        {
+          'day': 5,
+          'title': 'Sức mạnh & Bộc phát',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Gánh đùi Squat sâu giúp tăng cường cơ lực và bôi trơn ổ khớp chân.',
+            },
+            {
+              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
+              'reason': avoidBurpee
+                  ? 'Chống đẩy rèn sức chịu đựng cơ đẩy ngực tay mà không gây quá tải cho khớp gối.'
+                  : 'Burpee cường độ cao giúp tối ưu hóa calo thâm hụt.',
+            },
+          ],
+        },
+        {
+          'day': 6,
+          'title': 'Siết eo & Sức bền',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Thử thách Plank giữ thẳng lưng giúp định hình vòng eo thon nhỏ.',
+            },
+            {
+              'type': ExerciseType.pushUp,
+              'reason': 'Chống đẩy duy trì phom ngực và vai săn chắc.',
+            },
+          ],
+        },
+        {
+          'day': 7,
+          'title': 'Nghỉ ngơi phục hồi',
+          'isRest': true,
+          'reason':
+              'Hoàn thành chu kỳ 7 ngày tập luyện. Hãy uống đủ nước, ăn đủ chất và ngủ sâu để chuẩn bị cho chu kỳ tiếp theo hiệu quả hơn!',
+        },
+      ];
+    } else if (goal == 'build') {
+      return [
+        {
+          'day': 1,
+          'title': 'Sức mạnh Ngực & Vai',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.pushUp,
+              'reason':
+                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau.',
+            },
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Plank tăng độ vững chãi cho core bụng để chịu lực cơ thể tốt hơn.',
+            },
+          ],
+        },
+        {
+          'day': 2,
+          'title': 'Phát triển Mông Đùi',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Squat kích hoạt sản sinh hormone tăng trưởng tự nhiên để phát triển nhóm cơ lớn nhất cơ thể.',
+            },
+            {
+              'type': ExerciseType.walkingLunge,
+              'reason':
+                  'Walking Lunge tăng sức mạnh độc lập từng chân và cải thiện tính linh hoạt khớp hông.',
+            },
+          ],
+        },
+        {
+          'day': 3,
+          'title': 'Nghỉ ngơi phục hồi cơ',
+          'isRest': true,
+          'reason':
+              'Cơ bắp cần thời gian nghỉ ngơi để bù đắp sợi cơ bị tổn thương sau những ngày tập nặng. Hãy ngủ đủ giấc!',
+        },
+        {
+          'day': 4,
+          'title': 'Thể lực & Bộc phát',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
+              'reason': avoidBurpee
+                  ? 'Chống đẩy rèn luyện trương lực cơ phần trên an toàn khi không thể nhảy burpee.'
+                  : 'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện.',
+            },
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Squat nhịp độ đều đặn để duy trì thể tích bơm máu vào các nhóm cơ chân.',
+            },
+          ],
+        },
+        {
+          'day': 5,
+          'title': 'Core bụng & Sức chống chịu',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Plank tăng sức bền tĩnh cho cột sống và nhóm cơ sườn chậu.',
+            },
+            {
+              'type': ExerciseType.walkingLunge,
+              'reason':
+                  'Lunge bước chậm rèn luyện khả năng giữ thăng bằng di động và dẻo dai cơ mông.',
+            },
+          ],
+        },
+        {
+          'day': 6,
+          'title': 'Sức bền Thân trên',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.pushUp,
+              'reason':
+                  'Chống đẩy siết cơ ngực tay vai, gia tăng thể tích cơ nạc thân trên.',
+            },
+            {
+              'type': ExerciseType.jumpingJack,
+              'reason':
+                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất.',
+            },
+          ],
+        },
+        {
+          'day': 7,
+          'title': 'Nghỉ ngơi phục hồi cơ',
+          'isRest': true,
+          'reason':
+              'Chúc mừng bạn đã hoàn thành chu kỳ tập cơ! Hãy ăn đủ đạm, bổ sung nước và chuẩn bị thể lực tốt nhất.',
+        },
+      ];
+    } else {
+      // maintain - Giữ dáng linh hoạt
+      return [
+        {
+          'day': 1,
+          'title': 'Khởi động & Core bụng',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Plank siết eo nhẹ nhàng duy trì bụng phẳng và tư thế đứng thẳng đẹp mắt.',
+            },
+            {
+              'type': ExerciseType.jumpingJack,
+              'reason':
+                  'Jumping Jack vận động tim mạch nhẹ nhàng để tiêu hao mỡ thừa tích tụ.',
+            },
+          ],
+        },
+        {
+          'day': 2,
+          'title': 'Săn chắc Thân dưới',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Squat vừa sức duy trì cơ đùi mông săn gọn và linh hoạt ổ khớp gối.',
+            },
+            {
+              'type': ExerciseType.walkingLunge,
+              'reason':
+                  'Walking Lunge tăng độ thăng bằng di động cho cơ khớp hông háng.',
+            },
+          ],
+        },
+        {
+          'day': 3,
+          'title': 'Nghỉ ngơi phục hồi',
+          'isRest': true,
+          'reason':
+              'Một ngày thư giãn cơ thể. Hãy đi bộ nhẹ nhàng hoặc thực hiện yoga giãn cơ tại nhà.',
+        },
+        {
+          'day': 4,
+          'title': 'Sức mạnh vừa sức',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.pushUp,
+              'reason':
+                  'Chống đẩy duy trì cơ ngực bả vai săn chắc tự nhiên không bị chảy xệ.',
+            },
+            {
+              'type': ExerciseType.squat,
+              'reason':
+                  'Squat nhẹ nhàng để bôi trơn khớp gối và tăng tuần hoàn máu chân.',
+            },
+          ],
+        },
+        {
+          'day': 5,
+          'title': 'Sức bền toàn diện',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.jumpingJack,
+              'reason':
+                  'Jumping Jack rèn luyện khả năng hô hấp và tăng tính linh hoạt toàn thân.',
+            },
+            {
+              'type': ExerciseType.plank,
+              'reason':
+                  'Plank giữ vững liên kết cột sống lưng tránh đau mỏi do ngồi văn phòng nhiều.',
+            },
+          ],
+        },
+        {
+          'day': 6,
+          'title': 'Linh hoạt & Định hình',
+          'isRest': false,
+          'exercises': [
+            {
+              'type': ExerciseType.walkingLunge,
+              'reason': 'Lunge bước đi nhẹ nhàng làm thon gọn bắp đùi mông.',
+            },
+            {
+              'type': ExerciseType.pushUp,
+              'reason':
+                  'Chống đẩy duy trì sức chịu lực cổ tay và cơ ngực vai khỏe khoắn.',
+            },
+          ],
+        },
+        {
+          'day': 7,
+          'title': 'Nghỉ ngơi phục hồi',
+          'isRest': true,
+          'reason':
+              'Hoàn thành tuần lễ duy trì vóc dáng! Hãy tiếp tục duy trì chế độ dinh dưỡng giàu xơ và ngủ ngon giấc.',
+        },
+      ];
+    }
   }
 
   @override
@@ -969,25 +1041,18 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final isLoseWeight = _selectedGoal == 'lose';
 
     // 3. SINH BÀI TẬP ĐỀ XUẤT VÀ LỊCH TRÌNH THÍCH ỨNG DỰA TRÊN THỂ TRẠNG THỰC TẾ
-    final recommendedList = _generateAdaptiveDailyExercises(
-      bmi,
-      _age,
+    final adaptiveSchedule = _generateAdaptiveSchedule(
       _selectedGoal,
-    );
-    final adaptiveWeightLossSchedule = _generateAdaptiveWeightLossSchedule(
       bmi,
       _age,
     );
     final int todayIndex = DateTime.now().weekday - 1;
-    final int safeTodayIndex = todayIndex.clamp(
-      0,
-      adaptiveWeightLossSchedule.length - 1,
-    );
+    final int safeTodayIndex = todayIndex.clamp(0, adaptiveSchedule.length - 1);
     final selectedDayIndex = _selectedDayIndex.clamp(
       0,
-      adaptiveWeightLossSchedule.length - 1,
+      adaptiveSchedule.length - 1,
     );
-    final selectedDayData = adaptiveWeightLossSchedule[selectedDayIndex];
+    final selectedDayData = adaptiveSchedule[selectedDayIndex];
     final selectedDayDate = _getSelectedDayDate(selectedDayIndex);
 
     // 4. Tính toán số lượng mục tiêu (Rep/Giây) dựa trên TDEE
@@ -1300,7 +1365,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             decoration: BoxDecoration(
                               color: const Color(0xFF1E293B), // Slate 800
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.08),
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -1308,7 +1375,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                   child: _buildGoalChip('lose', '🎯 Giảm cân'),
                                 ),
                                 Expanded(
-                                  child: _buildGoalChip('maintain', '⚖️ Giữ dáng'),
+                                  child: _buildGoalChip(
+                                    'maintain',
+                                    '⚖️ Giữ dáng',
+                                  ),
                                 ),
                                 Expanded(
                                   child: _buildGoalChip('build', '💪 Tăng cơ'),
@@ -1326,13 +1396,19 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                 size: 18,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                isLoseWeight ? 'LỊCH TRÌNH GIẢM CÂN THEO NGÀY' : 'LỊCH TRÌNH TẬP LUYỆN & DINH DƯỠNG',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.neonGreen,
-                                  letterSpacing: 1.2,
+                              Expanded(
+                                child: Text(
+                                  isLoseWeight
+                                      ? 'LỊCH TRÌNH GIẢM CÂN THEO NGÀY'
+                                      : 'LỊCH TRÌNH TẬP LUYỆN & DINH DƯỠNG',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.neonGreen,
+                                    letterSpacing: 1.2,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                 ),
                               ),
                             ],
@@ -1340,19 +1416,28 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                           const SizedBox(height: 12),
                           LayoutBuilder(
                             builder: (context, constraints) {
-                              final shortWeekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-                              final cellWidth = (constraints.maxWidth - (6 * 6)) / 7; // Spacing 6px giữa 7 cột
-                              
+                              final shortWeekdays = [
+                                'T2',
+                                'T3',
+                                'T4',
+                                'T5',
+                                'T6',
+                                'T7',
+                                'CN',
+                              ];
+                              final cellWidth =
+                                  (constraints.maxWidth - (6 * 6)) /
+                                  7; // Spacing 6px giữa 7 cột
+
                               return Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: List.generate(7, (index) {
                                   final isToday = index == safeTodayIndex;
                                   final isSelected = index == selectedDayIndex;
                                   final isCompleted = _isDayWorkoutCompleted(
-                                    index, 
-                                    isLoseWeight, 
-                                    recommendedList, 
-                                    adaptiveWeightLossSchedule
+                                    index,
+                                    adaptiveSchedule,
                                   );
 
                                   return GestureDetector(
@@ -1360,51 +1445,79 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                       setState(() {
                                         _selectedDayIndex = index;
                                       });
-                                      final selectedDate = _getSelectedDayDate(index);
-                                      _loadCompletedExercisesForDay(selectedDate);
+                                      final selectedDate = _getSelectedDayDate(
+                                        index,
+                                      );
+                                      _loadCompletedExercisesForDay(
+                                        selectedDate,
+                                      );
                                       _loadMealLogsForDay(selectedDate);
                                     },
                                     child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 200),
+                                      duration: const Duration(
+                                        milliseconds: 200,
+                                      ),
                                       width: cellWidth,
                                       height: 60,
                                       decoration: isSelected
                                           ? BoxDecoration(
                                               gradient: const LinearGradient(
-                                                colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)], // Gradient xanh dương hiện đại nổi bật
+                                                colors: [
+                                                  Color(0xFF3B82F6),
+                                                  Color(0xFF1D4ED8),
+                                                ], // Gradient xanh dương hiện đại nổi bật
                                                 begin: Alignment.topCenter,
                                                 end: Alignment.bottomCenter,
                                               ),
-                                              borderRadius: BorderRadius.circular(12),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.blue.withValues(alpha: 0.25),
+                                                  color: Colors.blue.withValues(
+                                                    alpha: 0.25,
+                                                  ),
                                                   blurRadius: 6,
                                                   offset: const Offset(0, 2),
                                                 ),
                                               ],
                                             )
                                           : BoxDecoration(
-                                              color: isToday 
-                                                  ? Colors.white.withValues(alpha: 0.08) 
-                                                  : Colors.white.withValues(alpha: 0.02),
-                                              borderRadius: BorderRadius.circular(12),
+                                              color: isToday
+                                                  ? Colors.white.withValues(
+                                                      alpha: 0.08,
+                                                    )
+                                                  : Colors.white.withValues(
+                                                      alpha: 0.02,
+                                                    ),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                               border: Border.all(
-                                                color: isToday 
-                                                    ? AppTheme.neonGreen.withValues(alpha: 0.3) 
-                                                    : Colors.white.withValues(alpha: 0.05),
+                                                color: isToday
+                                                    ? AppTheme.neonGreen
+                                                          .withValues(
+                                                            alpha: 0.3,
+                                                          )
+                                                    : Colors.white.withValues(
+                                                        alpha: 0.05,
+                                                      ),
                                                 width: 1,
                                               ),
                                             ),
                                       child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
                                           Text(
                                             shortWeekdays[index],
                                             style: TextStyle(
-                                              color: isSelected 
-                                                  ? Colors.white 
-                                                  : (isToday ? AppTheme.neonGreen : Colors.white.withValues(alpha: 0.7)),
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : (isToday
+                                                        ? AppTheme.neonGreen
+                                                        : Colors.white
+                                                              .withValues(
+                                                                alpha: 0.7,
+                                                              )),
                                               fontWeight: FontWeight.bold,
                                               fontSize: 13,
                                             ),
@@ -1415,9 +1528,11 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                             width: 6,
                                             height: 6,
                                             decoration: BoxDecoration(
-                                              color: isCompleted 
-                                                  ? AppTheme.neonGreen 
-                                                  : (isSelected ? Colors.white54 : Colors.transparent),
+                                              color: isCompleted
+                                                  ? AppTheme.neonGreen
+                                                  : (isSelected
+                                                        ? Colors.white54
+                                                        : Colors.transparent),
                                               shape: BoxShape.circle,
                                             ),
                                           ),
@@ -1456,13 +1571,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
                               child: Theme(
-                                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                                data: Theme.of(
+                                  context,
+                                ).copyWith(dividerColor: Colors.transparent),
                                 child: ExpansionTile(
-                                  key: const PageStorageKey<String>('workout_panel'),
+                                  key: const PageStorageKey<String>(
+                                    'workout_panel',
+                                  ),
                                   initiallyExpanded: true,
                                   title: Row(
                                     children: [
-                                      const Icon(Icons.fitness_center, color: AppTheme.neonGreen, size: 20),
+                                      const Icon(
+                                        Icons.fitness_center,
+                                        color: AppTheme.neonGreen,
+                                        size: 20,
+                                      ),
                                       const SizedBox(width: 8),
                                       const Expanded(
                                         child: Text(
@@ -1479,56 +1602,107 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                   ),
                                   subtitle: Builder(
                                     builder: (context) {
-                                      final List<dynamic> currentExercises = isLoseWeight
-                                          ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
-                                          : recommendedList;
-                                      final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+                                      final List<dynamic> currentExercises =
+                                          selectedDayData['exercises']
+                                              as List<dynamic>? ??
+                                          [];
+                                      final bool isRest =
+                                          selectedDayData['isRest'] as bool? ??
+                                          false;
 
                                       if (isRest) {
-                                        return const Text('Hôm nay: Nghỉ ngơi & phục hồi', style: TextStyle(color: Colors.white70, fontSize: 11));
+                                        return const Text(
+                                          'Hôm nay: Nghỉ ngơi & phục hồi',
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 11,
+                                          ),
+                                        );
                                       }
 
-                                      int totalExercises = currentExercises.length;
+                                      int totalExercises =
+                                          currentExercises.length;
                                       int completedCount = 0;
                                       for (var rec in currentExercises) {
-                                        final ExerciseType type = rec['type'] as ExerciseType;
-                                        if (_isExerciseCompletedForDay(type, selectedDayDate)) {
+                                        final ExerciseType type =
+                                            rec['type'] as ExerciseType;
+                                        if (_isExerciseCompletedForDay(
+                                          type,
+                                          selectedDayDate,
+                                        )) {
                                           completedCount++;
                                         }
                                       }
                                       return Text(
                                         'Đã tập: $completedCount / $totalExercises bài (${totalExercises > 0 ? ((completedCount / totalExercises) * 100).toStringAsFixed(0) : 0}%)',
                                         style: TextStyle(
-                                          color: completedCount == totalExercises && totalExercises > 0 ? AppTheme.neonGreen : Colors.white70,
+                                          color:
+                                              completedCount ==
+                                                      totalExercises &&
+                                                  totalExercises > 0
+                                              ? AppTheme.neonGreen
+                                              : Colors.white70,
                                           fontSize: 11,
-                                          fontWeight: completedCount == totalExercises && totalExercises > 0 ? FontWeight.bold : FontWeight.normal,
+                                          fontWeight:
+                                              completedCount ==
+                                                      totalExercises &&
+                                                  totalExercises > 0
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
                                         ),
                                       );
                                     },
                                   ),
                                   childrenPadding: const EdgeInsets.all(16),
-                                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                                  expandedCrossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
-                                    if (isLoseWeight) ...[
+                                    if (selectedDayData['title'] != null) ...[
                                       Container(
                                         width: double.infinity,
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        margin: const EdgeInsets.only(bottom: 12),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                        margin: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: Colors.black12,
-                                          borderRadius: BorderRadius.circular(10),
-                                          border: Border.all(color: Colors.white10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white10,
+                                          ),
                                         ),
                                         child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
                                             const Text(
                                               'TIÊU ĐIỂM HÔM NAY:',
-                                              style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                             ),
-                                            Text(
-                                              selectedDayData['title'].toString().toUpperCase(),
-                                              style: const TextStyle(color: AppTheme.neonGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                selectedDayData['title']
+                                                    .toString()
+                                                    .toUpperCase(),
+                                                style: const TextStyle(
+                                                  color: AppTheme.neonGreen,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                                textAlign: TextAlign.end,
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -1536,29 +1710,48 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                     ],
                                     Builder(
                                       builder: (context) {
-                                        final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
+                                        final bool isRest =
+                                            selectedDayData['isRest']
+                                                as bool? ??
+                                            false;
                                         if (isRest) {
                                           return Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.all(16),
                                             decoration: BoxDecoration(
                                               color: Colors.black12,
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: Colors.white10),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: Colors.white10,
+                                              ),
                                             ),
                                             child: Column(
                                               children: [
-                                                const Icon(Icons.spa, color: AppTheme.neonBlue, size: 36),
+                                                const Icon(
+                                                  Icons.spa,
+                                                  color: AppTheme.neonBlue,
+                                                  size: 36,
+                                                ),
                                                 const SizedBox(height: 8),
                                                 const Text(
                                                   'NGÀY NGHỈ NGƠI & PHỤC HỒI',
-                                                  style: TextStyle(color: AppTheme.neonBlue, fontWeight: FontWeight.bold, fontSize: 13),
+                                                  style: TextStyle(
+                                                    color: AppTheme.neonBlue,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 13,
+                                                  ),
                                                 ),
                                                 const SizedBox(height: 6),
                                                 Text(
-                                                  selectedDayData['reason'].toString(),
+                                                  selectedDayData['reason']
+                                                      .toString(),
                                                   textAlign: TextAlign.center,
-                                                  style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.4),
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 11,
+                                                    height: 1.4,
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -1569,54 +1762,90 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                     ),
                                     Builder(
                                       builder: (context) {
-                                        final List<dynamic> currentExercises = isLoseWeight
-                                            ? (selectedDayData['exercises'] as List<dynamic>? ?? [])
-                                            : recommendedList;
-                                        final bool isRest = isLoseWeight && (selectedDayData['isRest'] as bool? ?? false);
-                                        if (isRest || currentExercises.isEmpty) {
+                                        final List<dynamic> currentExercises =
+                                            selectedDayData['exercises']
+                                                as List<dynamic>? ??
+                                            [];
+                                        final bool isRest =
+                                            selectedDayData['isRest']
+                                                as bool? ??
+                                            false;
+                                        if (isRest ||
+                                            currentExercises.isEmpty) {
                                           return const SizedBox.shrink();
                                         }
 
-                                        int totalExercises = currentExercises.length;
+                                        int totalExercises =
+                                            currentExercises.length;
                                         int completedCount = 0;
                                         final List<String> completedList = [];
                                         final List<String> missingList = [];
 
                                         for (var rec in currentExercises) {
-                                          final ExerciseType type = rec['type'] as ExerciseType;
-                                          final originalExercise = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == type);
-                                          final bool isCompleted = _isExerciseCompletedForDay(type, selectedDayDate);
+                                          final ExerciseType type =
+                                              rec['type'] as ExerciseType;
+                                          final originalExercise =
+                                              ExerciseDetail.defaultExercises
+                                                  .firstWhere(
+                                                    (e) => e.type == type,
+                                                  );
+                                          final bool isCompleted =
+                                              _isExerciseCompletedForDay(
+                                                type,
+                                                selectedDayDate,
+                                              );
                                           if (isCompleted) {
                                             completedCount++;
-                                            completedList.add(originalExercise.name);
+                                            completedList.add(
+                                              originalExercise.name,
+                                            );
                                           } else {
-                                            missingList.add(originalExercise.name);
+                                            missingList.add(
+                                              originalExercise.name,
+                                            );
                                           }
                                         }
 
                                         return Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
                                               children: [
                                                 const Text(
                                                   'TIẾN ĐỘ THỰC HIỆN',
-                                                  style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                                                  style: TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
                                                 Text(
                                                   '$completedCount/$totalExercises bài',
-                                                  style: const TextStyle(color: AppTheme.neonGreen, fontSize: 11, fontWeight: FontWeight.bold),
+                                                  style: const TextStyle(
+                                                    color: AppTheme.neonGreen,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
                                               ],
                                             ),
                                             const SizedBox(height: 6),
                                             ClipRRect(
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                               child: LinearProgressIndicator(
-                                                value: (completedCount / totalExercises),
+                                                value:
+                                                    (completedCount /
+                                                    totalExercises),
                                                 backgroundColor: Colors.white10,
-                                                valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.neonGreen),
+                                                valueColor:
+                                                    const AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(AppTheme.neonGreen),
                                                 minHeight: 6,
                                               ),
                                             ),
@@ -1625,46 +1854,81 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                               width: double.infinity,
                                               padding: const EdgeInsets.all(10),
                                               decoration: BoxDecoration(
-                                                color: completedCount == totalExercises
-                                                    ? AppTheme.neonGreen.withValues(alpha: 0.05)
-                                                    : AppTheme.errorRed.withValues(alpha: 0.05),
-                                                borderRadius: BorderRadius.circular(10),
+                                                color:
+                                                    completedCount ==
+                                                        totalExercises
+                                                    ? AppTheme.neonGreen
+                                                          .withValues(
+                                                            alpha: 0.05,
+                                                          )
+                                                    : AppTheme.errorRed
+                                                          .withValues(
+                                                            alpha: 0.05,
+                                                          ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                                 border: Border.all(
-                                                  color: completedCount == totalExercises
-                                                      ? AppTheme.neonGreen.withValues(alpha: 0.15)
-                                                      : AppTheme.errorRed.withValues(alpha: 0.15),
+                                                  color:
+                                                      completedCount ==
+                                                          totalExercises
+                                                      ? AppTheme.neonGreen
+                                                            .withValues(
+                                                              alpha: 0.15,
+                                                            )
+                                                      : AppTheme.errorRed
+                                                            .withValues(
+                                                              alpha: 0.15,
+                                                            ),
                                                 ),
                                               ),
                                               child: Row(
                                                 children: [
                                                   Icon(
-                                                    completedCount == totalExercises ? Icons.stars_rounded : Icons.warning_amber_rounded,
-                                                    color: completedCount == totalExercises ? AppTheme.neonGreen : AppTheme.errorRed,
+                                                    completedCount ==
+                                                            totalExercises
+                                                        ? Icons.stars_rounded
+                                                        : Icons
+                                                              .warning_amber_rounded,
+                                                    color:
+                                                        completedCount ==
+                                                            totalExercises
+                                                        ? AppTheme.neonGreen
+                                                        : AppTheme.errorRed,
                                                     size: 16,
                                                   ),
                                                   const SizedBox(width: 8),
                                                   Expanded(
                                                     child: Text(
-                                                      completedCount == totalExercises
+                                                      completedCount ==
+                                                              totalExercises
                                                           ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập của ngày này!'
                                                           : 'Bạn đang thiếu bài tập: ${missingList.join(", ")}.',
                                                       style: TextStyle(
-                                                        color: completedCount == totalExercises ? AppTheme.neonGreen : AppTheme.errorRed,
+                                                        color:
+                                                            completedCount ==
+                                                                totalExercises
+                                                            ? AppTheme.neonGreen
+                                                            : AppTheme.errorRed,
                                                         fontSize: 10.5,
-                                                        fontWeight: FontWeight.bold,
+                                                        fontWeight:
+                                                            FontWeight.bold,
                                                       ),
                                                     ),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                            const Divider(color: Colors.white10, height: 24),
+                                            const Divider(
+                                              color: Colors.white10,
+                                              height: 24,
+                                            ),
                                             ...currentExercises.map((rec) {
                                               return _buildExerciseCard(
                                                 rec as Map<String, dynamic>,
                                                 scientificTargets,
                                                 caloriesPerExercise,
-                                                selectedDayIndex == safeTodayIndex,
+                                                selectedDayIndex ==
+                                                    safeTodayIndex,
                                                 selectedDayDate,
                                               );
                                             }),
@@ -1924,7 +2188,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              isCompletedForDay ? 'Đã hoàn thành' : 'Chưa hoàn thành',
+                              isCompletedForDay
+                                  ? 'Đã hoàn thành'
+                                  : 'Chưa hoàn thành',
                               style: TextStyle(
                                 color: isCompletedForDay
                                     ? AppTheme.neonGreen
@@ -2052,28 +2318,33 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double bmi = _height > 0
         ? _weight / ((_height / 100) * (_height / 100))
         : 0.0;
-    
+
     final isAllowed = isGoalAllowedForBmi(goalKey, bmi);
     final isSelected = _selectedGoal == goalKey;
 
     return GestureDetector(
-      onTap: isAllowed ? () => _updateGoal(goalKey) : () {
-        String reason = '';
-        if (bmi >= 25.0) {
-          reason = 'Mục tiêu này bị khóa. Thể trạng Thừa cân/Béo phì cần ưu tiên Giảm cân để bảo vệ khớp gối!';
-        } else if (bmi < 18.5) {
-          reason = 'Mục tiêu này bị khóa. Thể trạng Thiếu cân cần ưu tiên Tăng cơ để cải thiện thể hình!';
-        } else {
-          reason = 'BMI Cân đối không cần giảm cân. Hãy chọn Giữ dáng hoặc Tăng cơ!';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('🔒 $reason'),
-            backgroundColor: Colors.grey[900],
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      },
+      onTap: isAllowed
+          ? () => _updateGoal(goalKey)
+          : () {
+              String reason = '';
+              if (bmi >= 25.0) {
+                reason =
+                    'Mục tiêu này bị khóa. Thể trạng Thừa cân/Béo phì cần ưu tiên Giảm cân để bảo vệ khớp gối!';
+              } else if (bmi < 18.5) {
+                reason =
+                    'Mục tiêu này bị khóa. Thể trạng Thiếu cân cần ưu tiên Tăng cơ để cải thiện thể hình!';
+              } else {
+                reason =
+                    'BMI Cân đối không cần giảm cân. Hãy chọn Giữ dáng hoặc Tăng cơ!';
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('🔒 $reason'),
+                  backgroundColor: Colors.grey[900],
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -2081,21 +2352,32 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             ? BoxDecoration(
                 gradient: LinearGradient(
                   colors: goalKey == 'lose'
-                      ? const [Color(0xFFFF6B6B), Color(0xFFFF4500)]   // Đỏ cam – giảm cân
+                      ? const [
+                          Color(0xFFFF6B6B),
+                          Color(0xFFFF4500),
+                        ] // Đỏ cam – giảm cân
                       : goalKey == 'maintain'
-                          ? const [Color(0xFF60A5FA), Color(0xFF3B82F6)] // Xanh dương – giữ dáng
-                          : const [Color(0xFF34D399), Color(0xFF059669)], // Xanh lá – tăng cơ
+                      ? const [
+                          Color(0xFF60A5FA),
+                          Color(0xFF3B82F6),
+                        ] // Xanh dương – giữ dáng
+                      : const [
+                          Color(0xFF34D399),
+                          Color(0xFF059669),
+                        ], // Xanh lá – tăng cơ
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: (goalKey == 'lose'
-                        ? const Color(0xFFFF6B6B)
-                        : goalKey == 'maintain'
-                            ? const Color(0xFF3B82F6)
-                            : const Color(0xFF34D399)).withValues(alpha: 0.35),
+                    color:
+                        (goalKey == 'lose'
+                                ? const Color(0xFFFF6B6B)
+                                : goalKey == 'maintain'
+                                ? const Color(0xFF3B82F6)
+                                : const Color(0xFF34D399))
+                            .withValues(alpha: 0.35),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
@@ -2108,6 +2390,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         child: Center(
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (!isAllowed) ...[
                 Icon(
@@ -2117,16 +2400,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 ),
                 const SizedBox(width: 4),
               ],
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected 
-                      ? Colors.white 
-                      : (isAllowed ? Colors.white.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.2)),
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 12.5,
-                  decoration: isAllowed ? TextDecoration.none : TextDecoration.lineThrough,
-                  decorationColor: Colors.white.withValues(alpha: 0.3),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : (isAllowed
+                              ? Colors.white.withValues(alpha: 0.6)
+                              : Colors.white.withValues(alpha: 0.2)),
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                    fontSize: 12.5,
+                    decoration: isAllowed
+                        ? TextDecoration.none
+                        : TextDecoration.lineThrough,
+                    decorationColor: Colors.white.withValues(alpha: 0.3),
+                  ),
                 ),
               ),
             ],
