@@ -25,7 +25,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   final AuthService _authService = AuthService();
   final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
   Map<String, dynamic>? _todayDraftWorkout;
-
+  List<String> _excludedIngredients = [];
   double _weight = 0.0;
   double _height = 0.0;
   int _age = 0;
