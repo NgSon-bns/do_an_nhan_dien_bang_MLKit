@@ -317,7 +317,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
               final String exerciseName = _getFriendlyExerciseName(rawExerciseName);
 
               final int duration = (workout['duration_seconds'] ?? 0) as int;
-              final int reps = (workout['completed_count'] ?? 0) as int;
+              final int reps = (workout['reps_count'] ?? 0) as int;
               final double calories = ((workout['calories_burned'] ?? 0) as num).toDouble();
 
               // Định dạng ngày giờ hiển thị
@@ -395,7 +395,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          duration > 0 ? '$duration giây' : '$reps lần',
+                          reps > 0 ?  '$reps lần':'$duration giây' ,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.6),
                             fontSize: 11,
