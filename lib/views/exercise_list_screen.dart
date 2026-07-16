@@ -12,6 +12,8 @@ import '../services/check_in_service.dart';
 import '../services/workout_draft_service.dart';
 import 'workout/workout_screen.dart';
 
+import 'components/workout_history_bottom_sheet.dart';
+
 class ExerciseListScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
 
@@ -72,7 +74,6 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     await _refreshTodayDraftWorkout();
     setState(() {
       _isLoadingCheckIn = true;
-      
     });
     try {
       await _checkInService.syncCheckInHistoryFromSupabase();
@@ -95,6 +96,20 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         });
       }
     }
+  }
+
+  void _showWorkoutHistory() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.cardBackground,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return WorkoutHistoryBottomSheet(databaseService: _databaseService);
+      },
+    );
   }
 
   Future<void> _handleCheckIn() async {
@@ -798,6 +813,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Kcal tiêu hao',
                                       '${_totalCalories.toStringAsFixed(0)} kcal',
                                       Colors.orange,
+                                      onTap: _showWorkoutHistory,
                                     ),
                                     Container(
                                       height: 32,
@@ -809,6 +825,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Thời gian tập',
                                       '$_totalMinutes phút',
                                       AppTheme.neonBlue,
+                                      onTap: _showWorkoutHistory,
                                     ),
                                     Container(
                                       height: 32,
@@ -820,6 +837,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Bài tập',
                                       '${exercises.length} bài AI',
                                       AppTheme.neonGreen,
+                                      onTap: _showWorkoutHistory,
                                     ),
                                   ],
                                 ),
@@ -1085,26 +1103,31 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     IconData icon,
     String label,
     String value,
-    Color color,
-  ) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 22),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+    Color color,{
+    VoidCallback? onTap, 
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-        ),
-      ],
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 

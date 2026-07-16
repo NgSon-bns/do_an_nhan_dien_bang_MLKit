@@ -445,7 +445,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     displayName = 'Điểm danh hàng ngày';
                                     displayIcon = Icons.today;
                                     iconColor = Colors.orangeAccent;
-                                  } else if (type == 'push_up') {
+                                  } else if (type == 'pushUp') {
                                     displayName = 'Chống đẩy (Push-up)';
                                     displayIcon = Icons.fitness_center;
                                   } else if (type == 'squat') {
@@ -458,10 +458,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   } else if (type == 'burpee') {
                                     displayName = 'Burpee liên hoàn';
                                     displayIcon = Icons.directions_run;
-                                  } else if (type == 'walking_lunge') {
-                                    displayName = 'Bước gập gối (Lunge)';
+                                  } else if (type == 'walkingLunge ') {
+                                    displayName = 'Bước chùng chân (Walking Lunge)';
                                     displayIcon = Icons.directions_walk;
-                                  } else if (type == 'jumping_jack') {
+                                  } else if (type == 'jumpingJack') {
                                     displayName = 'Nhảy vung tay (Jumping Jack)';
                                     displayIcon = Icons.fitness_center;
                                   }
