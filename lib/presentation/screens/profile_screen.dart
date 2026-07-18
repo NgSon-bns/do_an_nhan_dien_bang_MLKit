@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 
-import '../core/theme/app_theme.dart';
-import '../services/auth_service.dart';
-import '../services/database_service.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/data/services/auth_service.dart';
+import 'package:demo/data/services/database_service.dart';
 import 'auth/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {

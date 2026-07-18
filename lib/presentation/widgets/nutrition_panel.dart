@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/theme/app_theme.dart';
-import '../../models/recommended_meal.dart';
-import '../../services/nutrition_service.dart';
-import '../../services/auth_service.dart';
-import '../../models/allergens_dataset.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/domain/recommended_meal.dart';
+import 'package:demo/data/services/nutrition_service.dart';
+import 'package:demo/data/services/auth_service.dart';
+import 'package:demo/domain/allergens_dataset.dart';
 class NutritionPanel extends StatefulWidget {
   final double weight;
   final double height;

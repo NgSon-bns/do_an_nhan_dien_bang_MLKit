@@ -1,4 +1,4 @@
-import '../../models/exercise.dart';
+import 'package:demo/domain/exercise.dart';
 import 'base_pose_evaluator.dart';
 import 'push_up_evaluator.dart';
 import 'squat_evaluator.dart';

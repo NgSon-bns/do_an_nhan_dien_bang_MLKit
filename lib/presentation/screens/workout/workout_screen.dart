@@ -2,19 +2,21 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 
-import '../../core/theme/app_theme.dart';
-import '../../models/exercise.dart';
-import '../../models/workout_session.dart';
-import '../../services/pose_analysis/base_pose_evaluator.dart';
-import '../../services/pose_analysis/evaluator_factory.dart';
-import '../../services/pose_analysis/alignment_helper.dart';
-import '../../services/pose_detector_service.dart';
-import '../../services/database_service.dart';
-import '../../services/workout_draft_service.dart';
+import 'package:demo/core/theme/app_theme.dart';
+
+import 'package:demo/domain/exercise.dart';
+import 'package:demo/domain/workout_session.dart';
+import 'package:demo/data/services/pose_analysis/base_pose_evaluator.dart';
+import 'package:demo/data/services/pose_analysis/evaluator_factory.dart';
+import 'package:demo/data/services/pose_analysis/alignment_helper.dart';
+import 'package:demo/data/services/pose_detector_service.dart';
+import 'package:demo/data/services/database_service.dart';
+import 'package:demo/data/services/workout_draft_service.dart';
 import 'widgets/camera_stream_view.dart';
 import 'widgets/workout_hud_panel.dart';
 import 'widgets/pose_skeleton_painter.dart';
@@ -874,7 +876,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
 
     if (mounted) {
-      Navigator.pop(context, 'complete');
+      await _checkAndHandleTooHeavyWorkout();
+      if (mounted) {
+        Navigator.pop(context, 'complete');
+      }
     }
   }
 
@@ -1119,7 +1124,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         if (didPop) return;
         final popResult = await _onBackPressed();
         if (popResult != false && popResult != null && context.mounted) {
-          Navigator.of(context).pop(popResult);
+          if (popResult == 'complete' || popResult == 'exit') {
+            await _checkAndHandleTooHeavyWorkout();
+          }
+          if (context.mounted) {
+            Navigator.of(context).pop(popResult);
+          }
         }
       },
       child: Scaffold(
@@ -1249,7 +1259,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       onBackPressed: () async {
                         final popResult = await _onBackPressed();
                         if (popResult != false && popResult != null && context.mounted) {
-                          Navigator.of(context).pop(popResult);
+                          if (popResult == 'complete' || popResult == 'exit') {
+                            await _checkAndHandleTooHeavyWorkout();
+                          }
+                          if (context.mounted) {
+                            Navigator.of(context).pop(popResult);
+                          }
                         }
                       },
                       onResetPressed: _resetWorkout,
@@ -1261,6 +1276,86 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ),
       ),
     );
+  }
+
+  Future<void> _checkAndHandleTooHeavyWorkout() async {
+    // Chỉ kích hoạt nếu người dùng tập sai quá nhiều (từ 5 lần trở lên)
+    if (_session.incorrectPostureCount >= 5) {
+      final dialogContext = context;
+      bool? changeGoal = await showDialog<bool>(
+        context: dialogContext,
+        barrierDismissible: false,
+        builder: (dialogCtx) => AlertDialog(
+          backgroundColor: AppTheme.cardBackground,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: AppTheme.errorRed),
+              SizedBox(width: 8),
+              Text(
+                'Cảnh Báo Độ Khó',
+                style: TextStyle(
+                  color: AppTheme.errorRed,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Bài tập ${widget.exercise.name} có vẻ hơi quá sức với bạn (bạn đã tập sai ${_session.incorrectPostureCount} lần).\n\nBạn có muốn hệ thống tự động đổi bài tập này sang bài tập khác nhẹ hơn để tránh chấn thương không?',
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text(
+                'Không cần',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.neonGreen,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Đồng ý đổi',
+                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (changeGoal == true) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final List<String> heavyList = prefs.getStringList('heavy_exercises') ?? [];
+          final String exTypeName = widget.exercise.type.name;
+          if (!heavyList.contains(exTypeName)) {
+            heavyList.add(exTypeName);
+            await prefs.setStringList('heavy_exercises', heavyList);
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đã tự động cập nhật lịch tập phù hợp hơn cho bạn!'),
+                backgroundColor: AppTheme.neonGreen,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+        } catch (e) {
+          debugPrint('Lỗi lưu bài tập quá nặng: $e');
+        }
+      }
+    }
   }
 }
 

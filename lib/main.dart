@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'core/theme/app_theme.dart';
-import 'services/auth_service.dart';
-import 'views/auth/login_screen.dart';
-import 'views/exercise_list_screen.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/data/services/auth_service.dart';
+import 'package:demo/presentation/screens/auth/login_screen.dart';
+import 'package:demo/presentation/screens/exercise_list_screen.dart';
 
 void main() async {
   // Đảm bảo các dịch vụ hệ thống của Flutter được khởi tạo trước

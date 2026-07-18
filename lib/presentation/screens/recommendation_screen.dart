@@ -1,16 +1,16 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-import '../core/theme/app_theme.dart';
-import '../models/exercise.dart';
-import '../services/auth_service.dart';
-import '../services/database_service.dart';
-import '../services/workout_draft_service.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/domain/exercise.dart';
+import 'package:demo/data/services/auth_service.dart';
+import 'package:demo/data/services/database_service.dart';
+import 'package:demo/data/services/workout_draft_service.dart';
 import 'workout/workout_screen.dart';
-import 'components/nutrition_panel.dart';
+import 'package:demo/presentation/widgets/nutrition_panel.dart';
 
 class RecommendationScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -25,31 +25,130 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   final AuthService _authService = AuthService();
   final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
   Map<String, dynamic>? _todayDraftWorkout;
-  List<String> _excludedIngredients = [];
   double _weight = 0.0;
   double _height = 0.0;
   int _age = 0;
   String _userName = '';
   bool _isLoading = true;
   String _selectedGoal = 'maintain'; // 'lose', 'maintain', 'build'
-  int _selectedDayIndex = 0; // Chọn ngày trong lịch trình giảm cân (0 - 6)
+  int _selectedDayIndex = 7; // Chọn ngày trong lịch trình (0 - 20)
+  int _selectedWeekIndex = 1; // 0 = Tuần trước, 1 = Tuần này, 2 = Tuần sau
   final Map<ExerciseType, bool> _noSplitTargets = {};
   final Map<ExerciseType, int> _selectedTargets = {};
   final Map<ExerciseType, bool> _expandedTargetSelectors = {};
   final Map<String, Set<String>> _completedExerciseKeysByDay = {};
   List<Map<String, dynamic>> _todayMealLogs = [];
+  List<String> _heavyExercises = [];
 
   @override
   void initState() {
     super.initState();
-    _selectedDayIndex = DateTime.now().weekday - 1;
+    _selectedWeekIndex = 1;
+    _selectedDayIndex = 7 + (DateTime.now().weekday - 1);
     _loadUserProfile();
+    _loadHeavyExercises();
 
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
     _loadMealLogsForDay(selectedDate);
     _refreshTodayDraftWorkout();
   }
+
+  Future<void> _loadHeavyExercises() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('heavy_exercises') ?? [];
+      if (mounted) {
+        setState(() {
+          _heavyExercises = list;
+        });
+      }
+    } catch (e) {
+      debugPrint('Lỗi tải bài tập quá nặng: $e');
+    }
+  }
+
+  ExerciseType _getAdaptedExerciseType(ExerciseType type) {
+    ExerciseType current = type;
+    while (_heavyExercises.contains(current.name)) {
+      if (current == ExerciseType.burpee) {
+        current = ExerciseType.jumpingJack;
+      } else if (current == ExerciseType.pushUp) {
+        current = ExerciseType.plank;
+      } else if (current == ExerciseType.walkingLunge) {
+        current = ExerciseType.squat;
+      } else if (current == ExerciseType.squat) {
+        current = ExerciseType.jumpingJack;
+      } else if (current == ExerciseType.jumpingJack) {
+        current = ExerciseType.plank;
+      } else {
+        break; 
+      }
+    }
+    return current;
+  }
+
+  String _getAdaptedReason(ExerciseType originalType, ExerciseType adaptedType, String originalReason) {
+    if (originalType == adaptedType) return originalReason;
+    final adaptedEx = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == adaptedType);
+    final originalEx = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == originalType);
+    return 'Bài tập thay thế: Bạn tập ${originalEx.name} chưa quen nên HLV tự động chuyển sang ${adaptedEx.name} nhẹ hơn để bảo vệ cơ thể.';
+  }
+
+  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(List<Map<String, dynamic>> rawSchedule) {
+    // rawSchedule có 7 phần tử (Day 1 -> Day 7). Nhân bản thành 3 tuần (21 phần tử)
+    final List<Map<String, dynamic>> raw21 = [];
+    
+    // Tuần 1: Tuần trước (ngày 1 - 7)
+    for (int i = 0; i < 7; i++) {
+      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
+      dayCopy['day'] = i + 1; // 1 đến 7
+      dayCopy['weekLabel'] = 'Tuần trước';
+      raw21.add(dayCopy);
+    }
+    
+    // Tuần 2: Tuần này (ngày 8 - 14)
+    for (int i = 0; i < 7; i++) {
+      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
+      dayCopy['day'] = i + 8; // 8 đến 14
+      dayCopy['weekLabel'] = 'Tuần này';
+      raw21.add(dayCopy);
+    }
+    
+    // Tuần 3: Tuần sau (ngày 15 - 21)
+    for (int i = 0; i < 7; i++) {
+      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
+      dayCopy['day'] = i + 15; // 15 đến 21
+      dayCopy['weekLabel'] = 'Tuần sau';
+      raw21.add(dayCopy);
+    }
+
+    final List<Map<String, dynamic>> processed = [];
+    for (final day in raw21) {
+      final dayCopy = Map<String, dynamic>.from(day);
+      if (dayCopy['isRest'] == true) {
+        processed.add(dayCopy);
+        continue;
+      }
+      final List<dynamic> exercises = List.from(dayCopy['exercises'] as List);
+      final List<Map<String, dynamic>> newExercises = [];
+      for (int i = 0; i < exercises.length; i++) {
+        final exMap = Map<String, dynamic>.from(exercises[i] as Map);
+        final ExerciseType originalType = exMap['type'] as ExerciseType;
+        final ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
+        
+        if (originalType != adaptedType) {
+          exMap['type'] = adaptedType;
+          exMap['reason'] = _getAdaptedReason(originalType, adaptedType, exMap['reason'] as String);
+        }
+        newExercises.add(exMap);
+      }
+      dayCopy['exercises'] = newExercises;
+      processed.add(dayCopy);
+    }
+    return processed;
+  }
+
 
   Future<void> _refreshTodayDraftWorkout() async {
     final draft = await _workoutDraftService.getTodayDraftWorkout();
@@ -274,7 +373,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final now = DateTime.now();
     final todayIndex = now.weekday - 1; // 0 = Monday, 6 = Sunday
     final startOfToday = DateTime(now.year, now.month, now.day);
-    return startOfToday.add(Duration(days: index - todayIndex));
+    final mondayOfThisWeek = startOfToday.subtract(Duration(days: todayIndex));
+    return mondayOfThisWeek.add(Duration(days: index - 7));
   }
 
   bool _isDayWorkoutCompleted(
@@ -1041,13 +1141,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final isLoseWeight = _selectedGoal == 'lose';
 
     // 3. SINH BÀI TẬP ĐỀ XUẤT VÀ LỊCH TRÌNH THÍCH ỨNG DỰA TRÊN THỂ TRẠNG THỰC TẾ
-    final adaptiveSchedule = _generateAdaptiveSchedule(
+    final rawSchedule = _generateAdaptiveSchedule(
       _selectedGoal,
       bmi,
       _age,
     );
+    final adaptiveSchedule = _postProcessAdaptiveSchedule(rawSchedule);
     final int todayIndex = DateTime.now().weekday - 1;
-    final int safeTodayIndex = todayIndex.clamp(0, adaptiveSchedule.length - 1);
+    final int safeTodayIndex = 7 + todayIndex;
     final selectedDayIndex = _selectedDayIndex.clamp(
       0,
       adaptiveSchedule.length - 1,
@@ -1414,6 +1515,56 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             ],
                           ),
                           const SizedBox(height: 12),
+                          // 1. Sleek week tab selector
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(3, (weekIdx) {
+                              final labels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
+                              final isSelected = _selectedWeekIndex == weekIdx;
+                              return Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedWeekIndex = weekIdx;
+                                      // Khi đổi tuần, tự động chọn ngày Thứ Hai của tuần đó
+                                      _selectedDayIndex = weekIdx * 7;
+                                    });
+                                    final selectedDate = _getSelectedDayDate(_selectedDayIndex);
+                                    _loadCompletedExercisesForDay(selectedDate);
+                                    _loadMealLogsForDay(selectedDate);
+                                  },
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? AppTheme.neonGreen.withValues(alpha: 0.15)
+                                          : Colors.white.withValues(alpha: 0.02),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppTheme.neonGreen.withValues(alpha: 0.4)
+                                            : Colors.white.withValues(alpha: 0.05),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        labels[weekIdx],
+                                        style: TextStyle(
+                                          color: isSelected ? AppTheme.neonGreen : Colors.white60,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                          const SizedBox(height: 12),
                           LayoutBuilder(
                             builder: (context, constraints) {
                               final shortWeekdays = [
@@ -1432,21 +1583,23 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               return Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
-                                children: List.generate(7, (index) {
-                                  final isToday = index == safeTodayIndex;
-                                  final isSelected = index == selectedDayIndex;
+                                children: List.generate(7, (colIndex) {
+                                  final dayGlobalIndex = (_selectedWeekIndex * 7) + colIndex;
+                                  final isToday = dayGlobalIndex == safeTodayIndex;
+                                  final isSelected = dayGlobalIndex == selectedDayIndex;
                                   final isCompleted = _isDayWorkoutCompleted(
-                                    index,
+                                    dayGlobalIndex,
                                     adaptiveSchedule,
                                   );
+                                  final dayDate = _getSelectedDayDate(dayGlobalIndex);
 
                                   return GestureDetector(
                                     onTap: () {
                                       setState(() {
-                                        _selectedDayIndex = index;
+                                        _selectedDayIndex = dayGlobalIndex;
                                       });
                                       final selectedDate = _getSelectedDayDate(
-                                        index,
+                                        dayGlobalIndex,
                                       );
                                       _loadCompletedExercisesForDay(
                                         selectedDate,
@@ -1458,7 +1611,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                         milliseconds: 200,
                                       ),
                                       width: cellWidth,
-                                      height: 60,
+                                      height: 70, // Tăng chiều cao lên một chút để hiển thị số ngày đẹp mắt
                                       decoration: isSelected
                                           ? BoxDecoration(
                                               gradient: const LinearGradient(
@@ -1508,7 +1661,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                             MainAxisAlignment.center,
                                         children: [
                                           Text(
-                                            shortWeekdays[index],
+                                            shortWeekdays[colIndex],
                                             style: TextStyle(
                                               color: isSelected
                                                   ? Colors.white
@@ -1516,17 +1669,30 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                                         ? AppTheme.neonGreen
                                                         : Colors.white
                                                               .withValues(
-                                                                alpha: 0.7,
+                                                                alpha: 0.5,
                                                               )),
                                               fontWeight: FontWeight.bold,
-                                              fontSize: 13,
+                                              fontSize: 10,
                                             ),
                                           ),
-                                          const SizedBox(height: 5),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            '${dayDate.day}',
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : (isToday
+                                                        ? AppTheme.neonGreen
+                                                        : Colors.white),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
                                           // Dấu chấm tròn báo hiệu đã hoàn thành bài tập hoặc ngày nghỉ ngơi
                                           Container(
-                                            width: 6,
-                                            height: 6,
+                                            width: 5,
+                                            height: 5,
                                             decoration: BoxDecoration(
                                               color: isCompleted
                                                   ? AppTheme.neonGreen
@@ -2256,6 +2422,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             : null;
 
                         await _refreshTodayDraftWorkout();
+                        await _loadHeavyExercises();
                         if ((result == true || result == 'complete') &&
                             mounted) {
                           // Thực hiện cập nhật trạng thái UI cục bộ (nếu cần offline)

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:demo/models/workout_session.dart';
+import 'package:demo/domain/workout_session.dart';
 
 void main() {
   group('WorkoutSession mistake summary', () {

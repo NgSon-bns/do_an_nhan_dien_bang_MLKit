@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../../models/exercise.dart';
+import 'package:demo/domain/exercise.dart';
 
 enum CameraAngle {
   front,          // Thẳng đối diện mặt
