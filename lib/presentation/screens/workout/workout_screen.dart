@@ -51,6 +51,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   int _currentCameraIndex = 0;
   bool _isCameraInitialized = false;
   bool _isProcessing = false;
+  int _lastFrameTimeMs = 0;
   bool _isPoseDetected = false;
   bool _isFullBodyVisible = false;
   bool _isWorkoutComplete = false;
@@ -174,9 +175,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (!mounted || !_cameraController.value.isInitialized) return;
     if (_cameraController.value.isStreamingImages) return;
 
+    _lastFrameTimeMs = 0;
     await _cameraController.startImageStream((cameraImage) {
-      if (!_isProcessing && mounted) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (!_isProcessing && mounted && (now - _lastFrameTimeMs >= 120)) {
         _isProcessing = true;
+        _lastFrameTimeMs = now;
         _processImage(cameraImage);
       }
     });
