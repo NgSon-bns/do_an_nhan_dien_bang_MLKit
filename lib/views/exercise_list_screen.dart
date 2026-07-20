@@ -356,8 +356,8 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                               return 'Vui lòng nhập cân nặng';
                             }
                             final val = double.tryParse(value);
-                            if (val == null || val <= 10 || val > 300) {
-                              return 'Cân nặng không hợp lệ (10 - 300 kg)';
+                            if (val == null || val <= 30 || val > 300) {
+                              return 'Cân nặng không hợp lệ (30 - 300 kg)';
                             }
                             return null;
                           },

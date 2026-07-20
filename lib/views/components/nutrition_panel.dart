@@ -58,7 +58,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
 
   // Controller để thêm nguyên liệu dị ứng lên Supabase
   late  TextEditingController _allergyInputController;
-  late final TextEditingController _ingredientFilterController;
+  late  TextEditingController _ingredientFilterController;
   @override
   void initState() {
     super.initState();
@@ -1261,16 +1261,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Center(
-                        child: Text(
-                          'Bấm để xem thực đơn chi tiết từng bữa',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
+                      
                       const SizedBox(height: 12),
 
                       if (displayMeals.isEmpty)
