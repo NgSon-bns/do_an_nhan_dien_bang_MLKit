@@ -12,6 +12,8 @@ class WorkoutSession {
   // Dành riêng cho Plank: thời gian giữ plank chuẩn
   int activeHoldSeconds;
 
+  final List<String> _recordedMistakes = [];
+
   WorkoutSession({
     this.counter = 0,
     this.elapsedSeconds = 0,
@@ -36,6 +38,7 @@ class WorkoutSession {
     announcementMessage = '';
     caloriesBurned = 0.0;
     activeHoldSeconds = 0;
+    _recordedMistakes.clear();
   }
 
   void updateCalories(double caloriesPerMin, {required bool isDurationBased}) {
@@ -51,4 +54,43 @@ class WorkoutSession {
       caloriesBurned = counter * caloriesPerRep;
     }
   }
+
+  void recordMistake(String mistake) {
+    _recordedMistakes.add(mistake);
+  }
+
+  WorkoutMistakeSummary getMistakeSummary() {
+    final Map<String, int> counts = {};
+    for (final mistake in _recordedMistakes) {
+      counts[mistake] = (counts[mistake] ?? 0) + 1;
+    }
+
+    String? mostFrequent;
+    int maxCount = 0;
+    counts.forEach((mistake, count) {
+      if (count > maxCount) {
+        maxCount = count;
+        mostFrequent = mistake;
+      }
+    });
+
+    return WorkoutMistakeSummary(
+      totalMistakes: _recordedMistakes.length,
+      mistakeCounts: counts,
+      mostFrequentMistake: mostFrequent,
+    );
+  }
 }
+
+class WorkoutMistakeSummary {
+  final int totalMistakes;
+  final Map<String, int> mistakeCounts;
+  final String? mostFrequentMistake;
+
+  WorkoutMistakeSummary({
+    required this.totalMistakes,
+    required this.mistakeCounts,
+    this.mostFrequentMistake,
+  });
+}
+

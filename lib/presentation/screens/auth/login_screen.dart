@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/theme/app_theme.dart';
-import '../../services/auth_service.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/data/services/auth_service.dart';
 import '../exercise_list_screen.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../models/exercise.dart';
-import '../../../models/workout_session.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/domain/exercise.dart';
+import 'package:demo/domain/workout_session.dart';
 
 enum HudStatus { correct, warning, error }
 

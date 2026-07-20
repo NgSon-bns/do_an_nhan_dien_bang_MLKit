@@ -1,5 +1,5 @@
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../../core/utils/pose_math.dart';
+import 'package:demo/core/utils/pose_math.dart';
 import 'base_pose_evaluator.dart';
 import 'pose_analysis_result.dart';
 

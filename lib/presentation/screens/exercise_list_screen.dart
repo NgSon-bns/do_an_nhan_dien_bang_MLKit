@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../core/theme/app_theme.dart';
-import '../models/exercise.dart';
-import '../services/auth_service.dart';
-import '../services/database_service.dart';
+import 'package:demo/core/theme/app_theme.dart';
+import 'package:demo/domain/exercise.dart';
+import 'package:demo/data/services/auth_service.dart';
+import 'package:demo/data/services/database_service.dart';
 import 'profile_screen.dart';
 import 'recommendation_screen.dart';
-import '../services/check_in_service.dart';
-import '../services/workout_draft_service.dart';
+import 'package:demo/data/services/check_in_service.dart';
+import 'package:demo/data/services/workout_draft_service.dart';
 import 'workout/workout_screen.dart';
 
-import 'components/workout_history_bottom_sheet.dart';
+import 'package:demo/presentation/widgets/workout_history_bottom_sheet.dart';
 
 class ExerciseListScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -813,7 +813,6 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Kcal tiêu hao',
                                       '${_totalCalories.toStringAsFixed(0)} kcal',
                                       Colors.orange,
-                                      onTap: _showWorkoutHistory,
                                     ),
                                     Container(
                                       height: 32,
@@ -825,7 +824,6 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Thời gian tập',
                                       '$_totalMinutes phút',
                                       AppTheme.neonBlue,
-                                      onTap: _showWorkoutHistory,
                                     ),
                                     Container(
                                       height: 32,
@@ -837,7 +835,6 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       'Bài tập',
                                       '${exercises.length} bài AI',
                                       AppTheme.neonGreen,
-                                      onTap: _showWorkoutHistory,
                                     ),
                                   ],
                                 ),
@@ -921,6 +918,73 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             const Icon(
                               Icons.arrow_forward_ios,
                               color: AppTheme.neonGreen,
+                              size: 12,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Dedicated Lịch sử tập luyện card
+                    GestureDetector(
+                      onTap: _showWorkoutHistory,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: AppTheme.glassDecoration(
+                          color: AppTheme.neonBlue.withValues(alpha: 0.1),
+                          borderRadius: 20,
+                        ).copyWith(
+                          border: Border.all(
+                            color: AppTheme.neonBlue.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.neonBlue.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.history,
+                                color: AppTheme.neonBlue,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Nhật Ký Lịch Sử & Điểm Danh',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Xem tiến trình bài tập hoàn chỉnh, tập lỗi và chuỗi điểm danh.',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.6),
+                                      fontSize: 10.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_ios,
+                              color: AppTheme.neonBlue,
                               size: 12,
                             ),
                           ],
@@ -1029,7 +1093,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                       orElse: () =>
                                           ExerciseDetail.defaultExercises.first,
                                     );
-                                final result = await Navigator.push(
+                                await Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => WorkoutScreen(
@@ -1569,7 +1633,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                             Navigator.pop(navigatorContext);
                           }
                           if (navigatorContext.mounted) {
-                            final result = await Navigator.push(
+                            await Navigator.push(
                               navigatorContext,
                               MaterialPageRoute(
                                 builder: (context) => WorkoutScreen(

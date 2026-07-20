@@ -1,4 +1,4 @@
-import '../models/recommended_meal.dart';
+import 'package:demo/domain/recommended_meal.dart';
 
 class NutritionService {
   static List<RecommendedMeal> getRecommendedMeals(double bmi, int dayOfWeek, double targetCal) {

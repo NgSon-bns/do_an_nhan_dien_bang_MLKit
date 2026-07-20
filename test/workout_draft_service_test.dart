@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:demo/services/workout_draft_service.dart';
+import 'package:demo/data/services/workout_draft_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
