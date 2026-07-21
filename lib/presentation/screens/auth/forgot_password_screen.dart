@@ -106,9 +106,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!_resetFormKey.currentState!.validate()) return;
 
     final otpCode = _otpController.text.trim();
-    if (otpCode.length != 6) {
+    if (otpCode.isEmpty) {
       setState(() {
-        _errorMessage = 'Vui lòng nhập đủ 6 chữ số mã OTP';
+        _errorMessage = 'Vui lòng nhập mã OTP khôi phục';
       });
       return;
     }
@@ -402,10 +402,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               fontWeight: FontWeight.bold,
               letterSpacing: 6,
             ),
-            maxLength: 6,
+            maxLength: 10,
             decoration: InputDecoration(
               counterText: '',
-              labelText: 'Nhập mã OTP 6 số',
+              labelText: 'Nhập mã OTP khôi phục',
               labelStyle: const TextStyle(color: AppTheme.textSecondary, letterSpacing: 0),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),

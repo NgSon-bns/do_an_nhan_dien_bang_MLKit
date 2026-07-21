@@ -22,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _otpController = TextEditingController();
 
   final AuthService _authService = AuthService();
   bool _isLoading = false;
@@ -39,6 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _otpController.dispose();
     _resendTimer?.cancel();
     super.dispose();
   }
@@ -173,31 +175,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Future<void> _handleCheckLinkVerification() async {
+  Future<void> _handleVerifyOtp() async {
+    final otpCode = _otpController.text.trim();
+    if (otpCode.isEmpty) {
+      setState(() {
+        _errorMessage = 'Vui lòng nhập mã OTP xác thực';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final response = await _authService.signIn(
+      final response = await _authService.verifySignUpOtp(
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        token: otpCode,
+        fullName: _nameController.text.trim(),
       );
 
       if (!mounted) return;
 
       if (response.user != null) {
-        await _authService.createProfile(
-          userId: response.user!.id,
-          email: _emailController.text.trim(),
-          fullName: _nameController.text.trim(),
-        );
-
-        if (!mounted) return;
-
         _resendTimer?.cancel();
-
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
@@ -209,14 +211,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } catch (e) {
       String msg = e.toString();
       if (e is AuthException) {
-        if (e.message.contains('Email not confirmed') || e.message.contains('Confirm your email')) {
-          msg = 'Tài khoản chưa được xác nhận. Vui lòng mở Email của bạn, bấm vào đường link kích hoạt (Confirm email address), sau đó quay lại đây nhấn nút kiểm tra.';
-        } else {
-          msg = e.message;
-        }
+        msg = e.message;
       }
       setState(() {
-        _errorMessage = msg;
+        _errorMessage = 'Xác thực OTP thất bại: $msg';
       });
     } finally {
       if (mounted) {
@@ -232,7 +230,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          'Kích Hoạt Tài Khoản',
+          'Nhập Mã OTP Xác Thực',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 28,
@@ -243,7 +241,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Một liên kết kích hoạt đã được gửi đến email:\n${_emailController.text.trim()}\n\nVui lòng mở hộp thư của bạn (bao gồm cả thư rác/Spam) và click vào "Confirm email address", sau đó quay lại đây và nhấn nút kiểm tra bên dưới.',
+          'Mã xác thực OTP đã được gửi đến email:\n${_emailController.text.trim()}\n\nVui lòng kiểm tra hộp thư của bạn (bao gồm cả thư rác/Spam) và nhập mã bên dưới.',
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 14,
@@ -251,30 +249,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
             height: 1.4,
           ),
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: 28),
 
-        // Hộp thông báo đăng ký thành công (màu xanh)
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppTheme.neonGreen.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.neonGreen.withValues(alpha: 0.3)),
+        // Khung nhập mã OTP (hỗ trợ cả 6 và 8 chữ số)
+        TextFormField(
+          controller: _otpController,
+          keyboardType: TextInputType.number,
+          maxLength: 10,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppTheme.neonGreen,
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 6.0,
           ),
-          child: Row(
-            children: [
-              const Icon(Icons.check_circle_outline, color: AppTheme.neonGreen, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Đăng ký tài khoản thành công! Đã gửi liên kết xác thực đến email ${_emailController.text.trim()}.',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
-                ),
-              ),
-            ],
+          decoration: InputDecoration(
+            counterText: '',
+            hintText: 'Nhập mã OTP',
+            hintStyle: const TextStyle(
+              color: Colors.white24,
+              fontSize: 18,
+              letterSpacing: 2.0,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: AppTheme.neonGreen, width: 2.0),
+            ),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.05),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
 
         if (_errorMessage != null) ...[
           Container(
@@ -301,7 +310,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ],
 
         ElevatedButton(
-          onPressed: _isLoading ? null : _handleCheckLinkVerification,
+          onPressed: _isLoading ? null : _handleVerifyOtp,
           style: ElevatedButton.styleFrom(
             backgroundColor: AppTheme.neonGreen,
             disabledBackgroundColor: AppTheme.neonGreen.withValues(alpha: 0.4),
@@ -318,7 +327,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
                 )
               : const Text(
-                  'ĐÃ BẤM XÁC NHẬN TRONG EMAIL',
+                  'XÁC NHẬN MÃ OTP',
                   style: TextStyle(
                     color: Colors.black,
                     fontSize: 16,
@@ -333,7 +342,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
-              'Chưa nhận được email? ',
+              'Chưa nhận được mã? ',
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
             ),
             TextButton(
@@ -344,7 +353,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               child: Text(
-                _canResend ? 'Gửi lại' : 'Gửi lại sau ${_resendCountdown}s',
+                _canResend ? 'Gửi lại mã' : 'Gửi lại sau ${_resendCountdown}s',
                 style: TextStyle(
                   color: _canResend ? AppTheme.neonGreen : AppTheme.textSecondary,
                   fontWeight: FontWeight.bold,

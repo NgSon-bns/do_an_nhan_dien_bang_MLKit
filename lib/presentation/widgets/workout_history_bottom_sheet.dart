@@ -479,8 +479,10 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
   Widget _buildCheckInTabContent(ScrollController scrollController) {
     return FutureBuilder<Map<String, dynamic>>(
       future: () async {
-        final dates = await CheckInService().getCheckInDates();
-        final streak = await CheckInService().getStreak();
+        final checkInService = CheckInService();
+        await checkInService.syncCheckInHistoryFromSupabase();
+        final dates = await checkInService.getCheckInDates();
+        final streak = await checkInService.getStreak();
         return {'dates': dates, 'streak': streak};
       }(),
       builder: (context, snapshot) {

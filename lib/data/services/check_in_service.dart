@@ -4,18 +4,62 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'database_service.dart';
 
 class CheckInService {
-  static const String _datesKey = 'check_in_dates';
-  static const String _streakKey = 'check_in_streak';
-  static const String _lastKey = 'last_check_in_date';
-
   final DatabaseService _databaseService = DatabaseService();
 
-  // Đồng bộ lịch sử điểm danh từ Supabase CSDL xuống SharedPreferences cục bộ
+  String _getUserId() {
+    final user = Supabase.instance.client.auth.currentUser;
+    return user?.id ?? 'guest';
+  }
+
+  String _datesKey(String userId) => 'check_in_dates_$userId';
+  String _streakKey(String userId) => 'check_in_streak_$userId';
+  String _lastKey(String userId) => 'last_check_in_date_$userId';
+
+  // Tính toán chuỗi ngày liên tục (streak) chuẩn xác theo nguyên tắc:
+  // - Chỉ tính nếu có điểm danh hôm nay hoặc ngày hôm qua
+  // - Lùi từng ngày liên tiếp về quá khứ để đếm chuỗi
+  int _calculateStreak(List<String> sortedDates) {
+    if (sortedDates.isEmpty) return 0;
+
+    final today = _getTodayDateString();
+    final yesterday = _getDateString(DateTime.now().subtract(const Duration(days: 1)));
+
+    final reversedDates = List<String>.from(sortedDates)..sort((a, b) => b.compareTo(a));
+    final lastDate = reversedDates.first;
+
+    // Nếu ngày điểm danh gần nhất không phải hôm nay hoặc hôm qua => Chuỗi bị đứt (= 0)
+    if (lastDate != today && lastDate != yesterday) {
+      return 0;
+    }
+
+    int streak = 1;
+    DateTime checkDate = DateTime.parse(lastDate);
+    while (true) {
+      checkDate = checkDate.subtract(const Duration(days: 1));
+      final checkDateStr = _getDateString(checkDate);
+      if (reversedDates.contains(checkDateStr)) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
+  // Đồng bộ lịch sử điểm danh từ Supabase CSDL xuống SharedPreferences cục bộ đúng theo user_id
   Future<void> syncCheckInHistoryFromSupabase() async {
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) return;
+
+      final userId = user.id;
+      final prefs = await SharedPreferences.getInstance();
+
+      // Dọn dẹp key cũ không theo user_id để tránh dính dữ liệu giữa các tài khoản
+      await prefs.remove('check_in_dates');
+      await prefs.remove('check_in_streak');
+      await prefs.remove('last_check_in_date');
 
       List<String> datesFromDb = [];
 
@@ -23,7 +67,7 @@ class CheckInService {
         final List<dynamic> data = await client
             .from('check_ins')
             .select('check_in_date')
-            .eq('user_id', user.id);
+            .eq('user_id', userId);
 
         for (var row in data) {
           final String? dateStr = row['check_in_date'] as String?;
@@ -37,7 +81,7 @@ class CheckInService {
           final List<dynamic> data = await client
               .from('workout_history')
               .select('created_at')
-              .eq('user_id', user.id)
+              .eq('user_id', userId)
               .like('exercise_id', 'check_in%');
 
           for (var row in data) {
@@ -54,122 +98,81 @@ class CheckInService {
         }
       }
 
-      if (datesFromDb.isEmpty) return;
+      datesFromDb.sort();
 
-      final prefs = await SharedPreferences.getInstance();
-      final List<String> dates = prefs.getStringList(_datesKey) ?? [];
+      final int streak = _calculateStreak(datesFromDb);
+      final String? lastCheckInDate = datesFromDb.isNotEmpty
+          ? (List<String>.from(datesFromDb)..sort((a, b) => b.compareTo(a))).first
+          : null;
 
-      bool hasNewData = false;
-      for (var dbDate in datesFromDb) {
-        if (!dates.contains(dbDate)) {
-          dates.add(dbDate);
-          hasNewData = true;
-        }
-      }
-
-      if (!hasNewData) return;
-
-      dates.sort();
-
-      int streak = 0;
-      String? lastCheckInDate;
-      if (dates.isNotEmpty) {
-        final reversedDates = List<String>.from(dates)..sort((a, b) => b.compareTo(a));
-        lastCheckInDate = reversedDates.first;
-
-        final today = _getTodayDateString();
-        final yesterday = _getDateString(DateTime.now().subtract(const Duration(days: 1)));
-
-        if (lastCheckInDate == today || lastCheckInDate == yesterday) {
-          streak = 1;
-          DateTime checkDate = DateTime.parse(lastCheckInDate);
-          while (true) {
-            checkDate = checkDate.subtract(const Duration(days: 1));
-            final checkDateStr = _getDateString(checkDate);
-            if (dates.contains(checkDateStr)) {
-              streak++;
-            } else {
-              break;
-            }
-          }
-        } else {
-          streak = 0;
-        }
-      }
-
-      await prefs.setStringList(_datesKey, dates);
-      await prefs.setInt(_streakKey, streak);
+      // Lưu đúng dữ liệu của duy nhất user này
+      await prefs.setStringList(_datesKey(userId), datesFromDb);
+      await prefs.setInt(_streakKey(userId), streak);
       if (lastCheckInDate != null) {
-        await prefs.setString(_lastKey, lastCheckInDate);
+        await prefs.setString(_lastKey(userId), lastCheckInDate);
+      } else {
+        await prefs.remove(_lastKey(userId));
       }
     } catch (e) {
       debugPrint('Lỗi đồng bộ lịch sử điểm danh từ Supabase: $e');
     }
   }
 
-  // Tải danh sách ngày đã điểm danh
+  // Tải danh sách ngày đã điểm danh của user hiện tại
   Future<List<String>> getCheckInDates() async {
+    final userId = _getUserId();
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList(_datesKey) ?? [];
+    return prefs.getStringList(_datesKey(userId)) ?? [];
   }
 
-  // Tải chuỗi ngày liên tục (streak)
+  // Tải chuỗi ngày liên tục (streak) của user hiện tại
   Future<int> getStreak() async {
+    final userId = _getUserId();
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_streakKey) ?? 0;
+    return prefs.getInt(_streakKey(userId)) ?? 0;
   }
 
-  // Kiểm tra xem đã điểm danh hôm nay chưa
+  // Kiểm tra xem user hiện tại đã điểm danh hôm nay chưa
   Future<bool> hasCheckedInToday() async {
+    final userId = _getUserId();
     final prefs = await SharedPreferences.getInstance();
     final today = _getTodayDateString();
-    final lastCheckIn = prefs.getString(_lastKey);
+    final lastCheckIn = prefs.getString(_lastKey(userId));
     return lastCheckIn == today;
   }
 
-  // Thực hiện điểm danh
+  // Thực hiện điểm danh đúng ngày HÔM NAY cho user hiện tại (chỉ 1 lần/ngày)
   Future<Map<String, dynamic>> performCheckIn() async {
+    final userId = _getUserId();
     final prefs = await SharedPreferences.getInstance();
     final today = _getTodayDateString();
-    
-    final dates = prefs.getStringList(_datesKey) ?? [];
-    final lastCheckIn = prefs.getString(_lastKey);
-    int streak = prefs.getInt(_streakKey) ?? 0;
 
-    if (lastCheckIn == today) {
+    final dates = prefs.getStringList(_datesKey(userId)) ?? [];
+    final lastCheckIn = prefs.getString(_lastKey(userId));
+
+    // Nếu hôm nay đã điểm danh rồi -> chặn lại
+    if (lastCheckIn == today || dates.contains(today)) {
+      final currentStreak = prefs.getInt(_streakKey(userId)) ?? 0;
       return {
         'success': false,
-        'streak': streak,
+        'streak': currentStreak,
         'message': 'Hôm nay bạn đã điểm danh rồi!',
       };
     }
 
-    // Tính toán streak
-    if (lastCheckIn != null) {
-      try {
-        final lastDate = DateTime.parse(lastCheckIn);
-        final todayDate = DateTime.parse(today);
-        final difference = todayDate.difference(lastDate).inDays;
-
-        if (difference == 1) {
-          streak++; // Tiếp tục chuỗi
-        } else if (difference > 1) {
-          streak = 1; // Đứt chuỗi, bắt đầu lại
-        }
-      } catch (e) {
-        streak = 1;
-      }
-    } else {
-      streak = 1; // Lần đầu tiên
-    }
-
-    // Cập nhật local
+    // Thêm ngày hôm nay vào danh sách điểm danh
     dates.add(today);
-    await prefs.setStringList(_datesKey, dates);
-    await prefs.setString(_lastKey, today);
-    await prefs.setInt(_streakKey, streak);
+    dates.sort();
 
-    // Đồng bộ lên Supabase dưới dạng hoạt động đặc biệt 'check_in'
+    // Tính lại streak chuẩn xác
+    final newStreak = _calculateStreak(dates);
+
+    // Cập nhật bộ nhớ máy theo user_id
+    await prefs.setStringList(_datesKey(userId), dates);
+    await prefs.setString(_lastKey(userId), today);
+    await prefs.setInt(_streakKey(userId), newStreak);
+
+    // Đồng bộ lên CSDL Supabase
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
@@ -179,7 +182,9 @@ class CheckInService {
             'user_id': user.id,
             'check_in_date': today,
           });
-        } catch (_) {
+          debugPrint('Đã lưu thành công điểm danh vào bảng check_ins cho user: ${user.id}');
+        } catch (checkInErr) {
+          debugPrint('Lỗi insert bảng check_ins (Khả năng do thiếu RLS Policy): $checkInErr');
           await _databaseService.saveWorkoutResult(
             exerciseType: 'check_in',
             repsCount: 1,
@@ -195,18 +200,18 @@ class CheckInService {
 
     return {
       'success': true,
-      'streak': streak,
+      'streak': newStreak,
       'message': 'Điểm danh thành công!',
     };
   }
 
-  // Lấy chuỗi ngày thứ Hai -> Chủ Nhật của tuần hiện tại và trạng thái điểm danh tương ứng
+  // Lấy chuỗi ngày thứ Hai -> Chủ Nhật của tuần hiện tại và trạng thái điểm danh tương ứng của user hiện tại
   Future<List<Map<String, dynamic>>> getCurrentWeekCheckInStatus() async {
     final dates = await getCheckInDates();
     final now = DateTime.now();
-    
+
     // Tìm ngày thứ Hai của tuần này
-    final int currentWeekday = now.weekday; 
+    final int currentWeekday = now.weekday;
     final DateTime monday = now.subtract(Duration(days: currentWeekday - 1));
 
     final List<Map<String, dynamic>> weekStatus = [];
@@ -218,7 +223,6 @@ class CheckInService {
       final isToday = dateStr == _getTodayDateString();
       final hasChecked = dates.contains(dateStr);
 
-      // Cắt bớt phần sau của ngày để so sánh chuẩn xác
       final DateTime justDate = DateTime(dayDate.year, dayDate.month, dayDate.day);
       final DateTime justNow = DateTime(now.year, now.month, now.day);
 
