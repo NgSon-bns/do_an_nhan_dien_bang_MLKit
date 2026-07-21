@@ -86,11 +86,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   void initState() {
     super.initState();
-    // Cho phép cả xoay dọc và xoay ngang khi tập luyện
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
     ]);
     _poseDetectorService = PoseDetectorService();
     _poseDetectorService.initialize();

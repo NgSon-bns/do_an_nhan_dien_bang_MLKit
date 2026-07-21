@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import để dùng SystemChrome
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,15 +9,17 @@ import 'package:demo/presentation/screens/auth/login_screen.dart';
 import 'package:demo/presentation/screens/exercise_list_screen.dart';
 
 void main() async {
-  // Đảm bảo các dịch vụ hệ thống của Flutter được khởi tạo trước
+  // 1. Đảm bảo các dịch vụ hệ thống của Flutter được khởi tạo trước
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Khởi tạo Supabase (Bọc try-catch đề phòng người dùng chưa thay KEY)
+  // 2. KHÓA MÀN HÌNH CHỈ CHO PHÉP CHIỀU DỌC (PORTRAIT)
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+
+  // Khởi tạo Supabase
   bool isSupabaseInitialized = false;
 
-  // ==========================================================
-  // HƯỚNG DẪN: Thay thế URL và KEY của bạn lấy từ Supabase ở đây:
-  // ==========================================================
   const String supabaseUrl = 'https://cldjakuqxojmtethpbyg.supabase.co';
   const String supabaseAnonKey =
       'sb_publishable_SKRxupuxLeGaOO7FuvZY6g_OZ_poy5t';
@@ -24,7 +27,7 @@ void main() async {
   try {
     await Supabase.initialize(
       url: supabaseUrl,
-      publishableKey: supabaseAnonKey,
+      anonKey: supabaseAnonKey, // Đã đổi publishableKey -> anonKey theo chuẩn Supabase Flutter
     );
     isSupabaseInitialized = true;
   } catch (e) {
