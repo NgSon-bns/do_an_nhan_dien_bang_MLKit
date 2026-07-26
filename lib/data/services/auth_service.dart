@@ -123,12 +123,13 @@ class AuthService {
     }
   }
 
-  // 7. Cập nhật thông số profile (chiều cao, cân nặng, độ tuổi)
+  // 7. Cập nhật thông số profile (chiều cao, cân nặng, độ tuổi, giới tính)
   Future<void> updateUserProfile({
     required String fullName,
     required double weight,
     required double height,
     int? age,
+    String? gender,
   }) async {
     final user = currentUser;
     if (user == null) return;
@@ -142,14 +143,18 @@ class AuthService {
     if (age != null) {
       updateData['age'] = age;
     }
+    if (gender != null) {
+      updateData['gender'] = gender;
+    }
 
     try {
       await _client.from('profiles').update(updateData).eq('id', user.id);
     } catch (e) {
-      // Nếu cột 'age' chưa tồn tại trong Supabase, loại bỏ và cập nhật lại để tránh lỗi crash
-      debugPrint('Lỗi cập nhật thông số profile (có thể do thiếu cột age): $e');
-      if (age != null) {
+      // Nếu cột 'age' hoặc 'gender' chưa tồn tại trong Supabase, loại bỏ và cập nhật lại để tránh lỗi crash
+      debugPrint('Lỗi cập nhật thông số profile: $e');
+      if (age != null || gender != null) {
         updateData.remove('age');
+        updateData.remove('gender');
         await _client.from('profiles').update(updateData).eq('id', user.id);
       } else {
         rethrow;

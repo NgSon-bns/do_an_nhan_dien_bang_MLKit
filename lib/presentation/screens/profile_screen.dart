@@ -21,6 +21,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
   final _ageController = TextEditingController();
+  String _selectedGender = 'male';
 
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
@@ -66,6 +67,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _weightController.text = (profile['weight'] ?? 0.0).toString();
           _heightController.text = (profile['height'] ?? 0.0).toString();
           _ageController.text = (profile['age'] ?? 0).toString();
+          _selectedGender = profile['gender'] ?? 'male';
         });
       }
     } catch (e) {
@@ -117,6 +119,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         weight: weight,
         height: height,
         age: age,
+        gender: _selectedGender,
       );
 
       setState(() {
@@ -357,6 +360,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           return 'Tuổi không hợp lệ (5 - 120)';
                         }
                         return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Chọn Giới tính
+                    DropdownButtonFormField<String>(
+                      value: _selectedGender,
+                      dropdownColor: AppTheme.cardBackground,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      decoration: InputDecoration(
+                        labelText: 'Giới tính',
+                        labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                        prefixIcon: const Icon(Icons.people_outline, color: AppTheme.textSecondary),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Colors.white12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'male',
+                          child: Text('Nam (Male)', style: TextStyle(color: Colors.white)),
+                        ),
+                        DropdownMenuItem(
+                          value: 'female',
+                          child: Text('Nữ (Female)', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedGender = val;
+                          });
+                        }
                       },
                     ),
                     const SizedBox(height: 36),

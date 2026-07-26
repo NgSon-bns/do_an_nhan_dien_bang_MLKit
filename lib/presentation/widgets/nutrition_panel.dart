@@ -13,6 +13,7 @@ class NutritionPanel extends StatefulWidget {
   final double bmi;
   final DateTime selectedDayDate;
   final List<Map<String, dynamic>> todayMealLogs;
+  final String gender;
   final Function(List<Map<String, dynamic>> updatedLogs) onMealLogsUpdated;
 
   const NutritionPanel({
@@ -24,6 +25,7 @@ class NutritionPanel extends StatefulWidget {
     required this.bmi,
     required this.selectedDayDate,
     required this.todayMealLogs,
+    required this.gender,
     required this.onMealLogsUpdated,
   });
 
@@ -107,8 +109,12 @@ class _NutritionPanelState extends State<NutritionPanel> {
   void _calculateTargetCal() {
     if (widget.weight <= 0 || widget.height <= 0 || widget.age <= 0) return;
 
-    double bmr =
-        (10 * widget.weight) + (6.25 * widget.height) - (5 * widget.age) - 78;
+    double bmr = 0.0;
+    if (widget.gender.toLowerCase() == 'female') {
+      bmr = (10 * widget.weight) + (6.25 * widget.height) - (5 * widget.age) - 161;
+    } else {
+      bmr = (10 * widget.weight) + (6.25 * widget.height) - (5 * widget.age) + 5;
+    }
     if (bmr < 1000) bmr = 1000;
 
     double activityFactor = widget.bmi < 18.5

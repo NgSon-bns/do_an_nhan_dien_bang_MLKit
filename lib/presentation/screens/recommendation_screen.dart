@@ -28,6 +28,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   double _weight = 0.0;
   double _height = 0.0;
   int _age = 0;
+  String _gender = 'male';
   String _userName = '';
   bool _isLoading = true;
   String _selectedGoal = 'maintain'; // 'lose', 'maintain', 'build'
@@ -230,6 +231,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _weight = (profile['weight'] as num?)?.toDouble() ?? 0.0;
           _height = (profile['height'] as num?)?.toDouble() ?? 0.0;
           _age = (profile['age'] as num?)?.toInt() ?? 0;
+          _gender = profile['gender'] ?? 'male';
 
           if (_weight == 0.0) _weight = 65.0;
           if (_height == 0.0) _height = 170.0;
@@ -272,6 +274,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double newHeight,
     double newWeight,
     int newAge,
+    String newGender,
   ) async {
     setState(() {
       _isLoading = true;
@@ -298,7 +301,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         if (userId != null) {
           await client
               .from('profiles')
-              .update({'height': newHeight, 'weight': newWeight, 'age': newAge})
+              .update({
+                'height': newHeight,
+                'weight': newWeight,
+                'age': newAge,
+                'gender': newGender,
+              })
               .eq('id', userId);
         }
       }
@@ -307,6 +315,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         _height = newHeight;
         _weight = newWeight;
         _age = newAge;
+        _gender = newGender;
       });
 
       if (nextGoal != _selectedGoal) {
@@ -539,94 +548,127 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final ageController = TextEditingController(
       text: _age > 0 ? _age.toString() : '25',
     );
+    String dialogGender = _gender;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.cardBackground,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Center(
-          child: Text(
-            'CẬP NHẬT THỂ TRẠNG',
-            style: TextStyle(
-              color: AppTheme.neonGreen,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: heightController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Chiều cao (cm)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.neonGreen),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: weightController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Cân nặng (kg)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.neonGreen),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ageController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Tuổi',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.neonGreen),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final double? h = double.tryParse(heightController.text);
-              final double? w = double.tryParse(weightController.text);
-              final int? a = int.tryParse(ageController.text);
-              if (h != null && w != null && a != null) {
-                Navigator.pop(context);
-                _updatePhysicalStats(h, w, a);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.neonGreen,
-            ),
-            child: const Text(
-              'Lưu',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.cardBackground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Center(
+            child: Text(
+              'CẬP NHẬT THỂ TRẠNG',
               style: TextStyle(
-                color: Colors.black,
+                color: AppTheme.neonGreen,
                 fontWeight: FontWeight.bold,
+                fontSize: 16,
               ),
             ),
           ),
-        ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: heightController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Chiều cao (cm)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: AppTheme.neonGreen),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: weightController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Cân nặng (kg)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: AppTheme.neonGreen),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ageController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Tuổi',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: AppTheme.neonGreen),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: dialogGender,
+                  dropdownColor: AppTheme.cardBackground,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Giới tính',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: AppTheme.neonGreen),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'male',
+                      child: Text('Nam (Male)', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'female',
+                      child: Text('Nữ (Female)', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() {
+                        dialogGender = val;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final double? h = double.tryParse(heightController.text);
+                final double? w = double.tryParse(weightController.text);
+                final int? a = int.tryParse(ageController.text);
+                if (h != null && w != null && a != null) {
+                  Navigator.pop(context);
+                  _updatePhysicalStats(h, w, a, dialogGender);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.neonGreen,
+              ),
+              child: const Text(
+                'Lưu',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -637,11 +679,17 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double height,
     int age,
     String goal,
+    String gender,
   ) {
     // 1. Tính toán các chỉ số nền tảng
     double bmi = weight / ((height / 100) * (height / 100));
 
-    double bmr = (10 * weight) + (6.25 * height) - (5 * age) - 78;
+    double bmr = 0.0;
+    if (gender.toLowerCase() == 'female') {
+      bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
+    } else {
+      bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
+    }
     if (bmr < 1000) bmr = 1000;
 
     // 2. Tự động điều chỉnh hệ số hoạt động dựa trên thể trạng
@@ -711,6 +759,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         if (bmi >= 25.0) {
           roundedSec = roundedSec.clamp(30, 120);
         }
+        if (gender.toLowerCase() == 'female') {
+          roundedSec = (roundedSec * 0.85).round();
+        }
         computedTargets[exercise.type] = roundedSec;
       } else {
         // --- BÀI TẬP TÍNH THEO REP (Push-up, Squat, Burpee...) ---
@@ -722,6 +773,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             (caloriesPerRep > 0 ? caloriesPerRep : 1); // Tránh chia cho 0
         // Làm tròn đến số chia hết cho 2 hoặc 5 (ở đây giữ nguyên chia hết cho 5 của bạn)
         int roundedReps = ((reps / 5).round() * 5);
+        if (gender.toLowerCase() == 'female') {
+          roundedReps = (roundedReps * 0.85).round();
+        }
 
         // Nới rộng khoảng clamp để phân biệt rõ người khỏe/yếu, nặng/nhẹ cân
         // giới hạn theo ACSM khuyến nghị hoa kì
@@ -1092,7 +1146,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   Widget build(BuildContext context) {
     // 1. Tính toán BMR & TDEE theo Mifflin-St Jeor khoa học
     final double bmr = _height > 0
-        ? (10 * _weight) + (6.25 * _height) - (5 * _age) - 78
+        ? (_gender.toLowerCase() == 'female'
+            ? (10 * _weight) + (6.25 * _height) - (5 * _age) - 161
+            : (10 * _weight) + (6.25 * _height) - (5 * _age) + 5)
         : 0.0;
     final double tdee = bmr * 1.375;
     double targetWorkoutCalories = 0.0;
@@ -1162,6 +1218,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       _height,
       _age,
       _selectedGoal,
+      _gender,
     );
     final double caloriesPerExercise = targetWorkoutCalories / 4;
 
@@ -1719,6 +1776,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             bmi: bmi,
                             selectedDayDate: selectedDayDate,
                             todayMealLogs: _todayMealLogs,
+                            gender: _gender,
                             onMealLogsUpdated: (updatedLogs) {
                               setState(() {
                                 _todayMealLogs = updatedLogs;
