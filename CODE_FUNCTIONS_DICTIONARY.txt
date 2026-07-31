@@ -1,0 +1,131 @@
+# TỪ ĐIỂN CÁC HÀM HOẠT ĐỘNG & CẤU TRÚC MÃ NGUỒN CHÌA KHÓA
+
+Tài liệu này liệt kê toàn bộ các lớp (Classes), các hàm (Functions/Methods) cốt lõi hoạt động trong dự án, giải thích chi tiết chức năng, tham số đầu vào (parameters), kiểu dữ liệu trả về (return types) và cách hoạt động của chúng.
+
+---
+
+## 1. DỊCH VỤ XÁC THỰC (AuthService - auth_service.dart)
+*Quản lý tài khoản người dùng, đăng ký, đăng nhập và thông tin cá nhân (Profile) đồng bộ qua Supabase.*
+
+*   **signUp({required String email, required String password})**
+    *   Mô tả: Đăng ký tài khoản mới bằng Email và Mật khẩu (Trạng thái chờ xác thực OTP).
+    *   Kiểu trả về: Future<AuthResponse>
+*   **verifySignUpOtp({required String email, required String token, required String fullName})**
+    *   Mô tả: Xác thực mã OTP mà người dùng nhập. Khi OTP chính xác, hệ thống sẽ tự động tạo một dòng dữ liệu mới trong bảng profiles chứa ID, email và họ tên người dùng.
+    *   Kiểu trả về: Future<AuthResponse>
+*   **createProfile({required String userId, required String email, required String fullName})**
+    *   Mô tả: Ghi trực tiếp thông tin người dùng mới vào bảng profiles trên Database (dùng làm phương án dự phòng khi tắt OTP trên Supabase).
+    *   Kiểu trả về: Future<void>
+*   **signIn({required String email, required String password})**
+    *   Mô tả: Đăng nhập hệ thống bằng email và mật khẩu.
+    *   Kiểu trả về: Future<AuthResponse>
+*   **signOut()**
+    *   Mô tả: Đăng xuất tài khoản hiện tại, hủy bỏ phiên làm việc (session).
+    *   Kiểu trả về: Future<void>
+*   **getCurrentUserProfile()**
+    *   Mô tả: Truy vấn thông tin chi tiết (Cân nặng, chiều cao, tuổi, giới tính, mục tiêu) của tài khoản đang đăng nhập từ bảng profiles.
+    *   Kiểu trả về: Future<Map<String, dynamic>?> (Trả về Map chứa dữ liệu hoặc null).
+*   **updateUserProfile({required String fullName, required double weight, required double height, int? age, String? gender})**
+    *   Mô tả: Cập nhật các thông số thể chất của người dùng lên bảng profiles để phục vụ thuật toán tính BMR/TDEE và đưa ra đề xuất bài tập.
+    *   Kiểu trả về: Future<void>
+
+---
+
+## 2. DỊCH VỤ ĐIỂM DANH & CHUỖI TẬP (CheckInService - check_in_service.dart)
+*Quản lý lịch trình điểm danh, chuỗi ngày tập liên tục (Streak) lưu tạm dưới máy và đồng bộ lên Cloud.*
+
+*   **_calculateStreak(List<String> sortedDates)**
+    *   Mô tả: Hàm nội bộ tính số ngày tập liên tục. Hàm sẽ kiểm tra ngày tập gần nhất có phải hôm nay hoặc hôm qua không (nếu không sẽ đứt chuỗi = 0). Sau đó lùi dần từng ngày về quá khứ để đếm tổng chuỗi liên tục.
+    *   Kiểu trả về: int (Số ngày streak).
+*   **syncCheckInHistoryFromSupabase()**
+    *   Mô tả: Tải toàn bộ lịch sử điểm danh của người dùng từ bảng check_ins trên database về máy, tự động tính lại số ngày streak, và lưu trữ vào SharedPreferences cục bộ để hiển thị ngoại tuyến nhanh chóng.
+    *   Kiểu trả về: Future<void>
+*   **getCheckInDates()**
+    *   Mô tả: Đọc danh sách các ngày đã điểm danh (dưới dạng chuỗi yyyy-MM-dd) được lưu tạm trong bộ nhớ máy.
+    *   Kiểu trả về: Future<List<String>>
+*   **getStreak()**
+    *   Mô tả: Đọc số ngày streak hiện tại của người dùng từ bộ nhớ máy.
+    *   Kiểu trả về: Future<int>
+*   **hasCheckedInToday()**
+    *   Mô tả: Kiểm tra xem hôm nay người dùng đã thực hiện điểm danh/tập luyện lần nào chưa.
+    *   Kiểu trả về: Future<bool>
+*   **performCheckIn()**
+    *   Mô tả: Tiến hành điểm danh cho ngày hôm nay. Thêm ngày hôm nay vào bộ nhớ máy, tính toán lại streak mới, và thực hiện chèn (Insert) một bản ghi mới lên bảng check_ins của Supabase.
+    *   Kiểu trả về: Future<Map<String, dynamic>> (Trả về trạng thái thành công và số streak mới).
+*   **getCurrentWeekCheckInStatus()**
+    *   Mô tả: Tính toán danh sách 7 ngày trong tuần hiện tại (từ Thứ Hai đến Chủ Nhật) và trạng thái điểm danh tương ứng của từng ngày (đã điểm danh/chưa điểm danh/ngày tương lai) để vẽ dải ô lịch tuần trên Dashboard.
+    *   Kiểu trả về: Future<List<Map<String, dynamic>>>
+
+---
+
+## 3. DỊCH VỤ DỮ LIỆU TẬP LUYỆN (DatabaseService - database_service.dart)
+*Lưu trữ và thống kê lịch sử kết quả tập luyện.*
+
+*   **saveWorkoutResult({required String exerciseType, required int repsCount, required int durationSeconds, required double caloriesBurned, required int incorrectPostures, String? sourceTag})**
+    *   Mô tả: Ghi nhận kết quả của buổi tập vừa hoàn thành lên bảng workout_history của Supabase.
+    *   Kiểu trả về: Future<void>
+*   **getWorkoutStats()**
+    *   Mô tả: Truy vấn tất cả lịch sử tập của người dùng để tính toán tổng lượng Calo đã tiêu hao, tổng số phút đã tập luyện, và tổng số buổi tập đã thực hiện để hiện lên màn hình Dashboard.
+    *   Kiểu trả về: Future<Map<String, dynamic>>
+*   **getCompletedExerciseRecordsForDate(DateTime day)**
+    *   Mô tả: Lấy danh sách các bài tập đã hoàn thành trong một ngày cụ thể (được xử lý múi giờ cục bộ chính xác).
+    *   Kiểu trả về: Future<List<Map<String, dynamic>>>
+
+---
+
+## 4. DỊCH VỤ HÌNH HỌC KHUNG XƯƠNG (PoseMath - pose_math.dart)
+*Thư viện tính toán hình học vector lượng giác.*
+
+*   **calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c)**
+    *   Mô tả: Tính góc đỉnh B tạo bởi 3 điểm khớp xương A, B, C dựa trên tọa độ X, Y và trả về góc từ 0 độ đến 360 độ.
+    *   Kiểu trả về: double
+*   **getElbowAngle(PoseLandmark s, PoseLandmark e, PoseLandmark w)**
+    *   Mô tả: Tính góc gập trong của khớp (khuỷu tay, đầu gối). Nếu góc tính ra > 180 độ, hàm tự động lấy góc đối xứng 360 - angle để luôn có góc nhỏ hơn hoặc bằng 180 độ.
+    *   Kiểu trả về: double
+*   **calculateDistance(PoseLandmark a, PoseLandmark b)**
+    *   Mô tả: Tính khoảng cách đường thẳng vật lý (độ dài) giữa hai khớp xương A and B.
+    *   Kiểu trả về: double
+*   **calculateAngleToVertical(PoseLandmark a, PoseLandmark b)**
+    *   Mô tả: Tính góc nghiêng của đường thẳng nối A và B so với phương thẳng đứng (trục đứng Y). Dùng để kiểm tra độ thẳng lưng.
+    *   Kiểu trả về: double
+*   **calculateAngleToHorizontal(PoseLandmark a, PoseLandmark b)**
+    *   Mô tả: Tính góc nghiêng của đường thẳng nối A và B so với phương nằm ngang (trục ngang X). Dùng để kiểm tra độ dốc người khi nằm Plank.
+    *   Kiểu trả về: double
+
+---
+
+## 5. THUẬT TOÁN KIỂM TRA KHUNG HÌNH (AlignmentHelper - alignment_helper.dart)
+*Quản lý việc định vị người dùng vào luồng camera.*
+
+*   **estimateBodyYaw(Pose pose)**
+    *   Mô tả: Ước lượng góc xoay ngang của thân người so với ống kính bằng hàm lượng giác tính theo độ chênh lệch chiều sâu (tọa độ Z) của vai và hông.
+    *   Kiểu trả về: double (Góc xoay bằng độ).
+*   **checkAlignment({...})**
+    *   Mô tả: Kiểm tra xem các điểm khớp chính (vai, hông, đầu gối, cổ chân) của người dùng có nằm hoàn toàn bên trong khung chữ nhật an toàn được vẽ trên màn hình camera hay không. Trả về kết quả đúng/sai và lời khuyên tiếng Việt tương ứng (ví dụ: "Hãy đứng lùi lại để camera thấy toàn thân").
+    *   Kiểu trả về: AlignmentResult
+
+---
+
+## 6. LỚP ĐÁNH GIÁ TƯ THẾ BÀI TẬP (Pose Evaluators)
+*Mỗi bài tập kế thừa từ lớp cha BasePoseEvaluator và thực thi hàm đánh giá dưới dạng máy trạng thái.*
+
+### Cấu trúc chung (Interface):
+*   **reset()**: Khởi tạo lại trạng thái ban đầu của thuật toán (reset bộ đếm reps, trạng thái chuyển động về UP hoặc NEUTRAL).
+*   **evaluate(Pose pose)**: Phân tích khung xương hiện tại và trả về đối tượng PoseAnalysisResult chứa:
+    *   isPostureCorrect (Tư thế đúng hay sai).
+    *   feedbackMessage (Dòng chữ phản hồi thời gian thực hiện trên HUD).
+    *   shouldCountRep (Khung hình này có phải là thời điểm hoàn thành 1 rep tập hay không).
+
+### Các lớp đánh giá chi tiết:
+1.  **SquatEvaluator** (squat_evaluator.dart)
+    *   Cơ chế: So sánh tọa độ Y của hông hiện tại với mốc đứng thẳng (_standingHipY). Chuyển từ trạng thái UP sang DOWN khi góc đầu gối dưới 110 độ và hông hạ đủ sâu. Chuyển lại về UP để tăng 1 rep khi gối duỗi trên 150 độ. Báo lỗi nếu độ nghiêng vai-hông so với phương đứng > 45 độ.
+2.  **PushUpEvaluator** (push_up_evaluator.dart)
+    *   Cơ chế: Tự động xác định góc khuỷu tay của bên cơ thể đang quay về phía camera. Đếm rep khi góc khuỷu tay gập dưới 110 độ rồi duỗi thẳng trên 150 độ. Báo lỗi nếu góc thẳng hàng hông-vai-gối lệch ngoài khoảng [152 độ, 200 độ].
+3.  **PlankEvaluator** (plank_evaluator.dart)
+    *   Cơ chế: Tính toán cao độ hông mong muốn từ đường thẳng nối vai và cổ chân. Báo lỗi hông quá cao hoặc võng lưng nếu tọa độ hông lệch quá 0.04 đơn vị so với đường thẳng lý tưởng này.
+4.  **JumpingJackEvaluator** (jumping_jack_evaluator.dart)
+    *   Cơ chế: Tính tỷ số khoảng cách chân chia cho chiều rộng vai. Chuyển sang ACTIVE khi tỷ số > 1.45 và hai tay giơ cao qua vai. Chuyển về NEUTRAL (đếm 1 rep) khi tỷ số khép chân < 1.15 và hai tay hạ thấp.
+5.  **WalkingLungeEvaluator** (walking_lunge_evaluator.dart)
+    *   Cơ chế: Chuyển sang trạng thái gập tấn khi cả hai đầu gối cùng gập góc dưới 110 độ. Đếm rep khi cả hai gối duỗi thẳng trên 150 độ. Phạt không tính rep nếu góc nghiêng lưng trung bình so với phương thẳng đứng vượt quá 20 độ.
+6.  **BurpeeEvaluator** (burpee_evaluator.dart)
+    *   Cơ chế: Máy trạng thái di chuyển tuần tự qua 5 bước: Đứng -> Ngồi xổm -> Plank nằm ngang -> Thu chân -> Bật nhảy giơ tay. Áp dụng luật dự phòng toàn cục (Global Recovery) để tự động hoàn thành rep nếu người dùng đã làm xong Plank và bật nhảy giơ tay lên cao.

@@ -20,7 +20,8 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
   }
 
   bool _isLandmarkVisible(PoseLandmark? landmark) {
-    return landmark != null && landmark.likelihood > _landmarkConfidenceThreshold;
+    return landmark != null &&
+        landmark.likelihood > _landmarkConfidenceThreshold;
   }
 
   @override
@@ -45,8 +46,10 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
         _isLandmarkVisible(rightWrist) &&
         _isLandmarkVisible(leftAnkle) &&
         _isLandmarkVisible(rightAnkle)) {
-
-      double shoulderWidth = PoseMath.calculateDistance(leftShoulder!, rightShoulder!);
+      double shoulderWidth = PoseMath.calculateDistance(
+        leftShoulder!,
+        rightShoulder!,
+      );
       double feetDistance = PoseMath.calculateDistance(leftAnkle!, rightAnkle!);
       double feetRatio = feetDistance / shoulderWidth;
 
@@ -54,14 +57,15 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
       bool leftArmUp = leftWrist!.y < leftShoulder.y;
       bool rightArmUp = rightWrist!.y < rightShoulder.y;
       bool armsAreUp = leftArmUp && rightArmUp;
-      
+
       // Chuẩn hóa khoảng cách tay xuống dưới vai dựa theo chiều rộng vai thay vì 50px cố định
       double armDownThreshold = shoulderWidth * 0.4;
-      bool armsAreDown = (leftWrist.y > leftShoulder.y + armDownThreshold) && 
-                         (rightWrist.y > rightShoulder.y + armDownThreshold);
+      bool armsAreDown =
+          (leftWrist.y > leftShoulder.y + armDownThreshold) &&
+          (rightWrist.y > rightShoulder.y + armDownThreshold);
 
-      bool feetAreWide = feetRatio > 1.45;    // Tăng độ nhạy (1.55 -> 1.45)
-      bool feetAreClosed = feetRatio < 1.15;  // Tăng độ chuẩn xác (1.25 -> 1.15)
+      bool feetAreWide = feetRatio > 1.45; // Tăng độ nhạy (1.55 -> 1.45)
+      bool feetAreClosed = feetRatio < 1.15; // Tăng độ chuẩn xác (1.25 -> 1.15)
 
       bool isCurrentPostureCorrect = true;
 

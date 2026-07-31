@@ -7,6 +7,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
+  bool _isPushUpDeepEnoughInCurrentRep = false; // Theo dõi độ sâu đạt được trong rep hiện tại
   bool _isRightSideVisible = true;
   int _reps = 0;
 
@@ -18,6 +19,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
   void reset() {
     _motionState = 'UP';
     _isPostureCorrectInCurrentRep = true;
+    _isPushUpDeepEnoughInCurrentRep = false;
     _standingShoulderY = 0;
     _errorFrames = 0;
     isBackCorrect = true;
@@ -86,17 +88,27 @@ class PushUpEvaluator extends BasePoseEvaluator {
         feedbackMessage: 'Hãy nghiêng người để camera thấy rõ khuỷu tay',
       );
 
-    // 2. Calibrate mốc (Khi tay thẳng, lấy vị trí hông làm gốc)
-    // Thay đổi phần tính currentShoulderY
-    double currentShoulderY = 1;
-    if (elbowAngle < 110) {
-      _standingShoulderY = currentShoulderY;
+    final currentShoulder = _isRightSideVisible ? rightShoulder! : leftShoulder!;
+    final currentHip = _isRightSideVisible ? rightHip! : leftHip!;
+
+    // 2. Calibrate mốc (khi tay thẳng hoặc chưa có mốc khởi tạo)
+    if (elbowAngle > 160 || _standingShoulderY == 0) {
+      _standingShoulderY = currentShoulder.y;
     }
-    // Khi tay thẳng, lưu lại mốc của ĐÚNG BÊN ĐÓ
-    if (elbowAngle > 160) {
-      currentShoulderY = _isRightSideVisible
-          ? rightShoulder!.y
-          : leftShoulder!.y;
+
+    // Tính độ dài thân người (khoảng cách giữa vai và hông) để làm mốc tỷ lệ cơ thể
+    double torsoLength = PoseMath.calculateDistance(currentShoulder, currentHip);
+    if (torsoLength < 1) torsoLength = 1; // Tránh lỗi chia cho 0
+
+    // Kiểm tra độ dịch chuyển đi xuống chuẩn hóa theo tỷ lệ cơ thể
+    if (_standingShoulderY > 0) {
+      double verticalDisplacement = currentShoulder.y - _standingShoulderY;
+      double normalizedDisplacement = verticalDisplacement / torsoLength;
+
+      // Nếu độ sâu hạ người đạt tối thiểu 10% chiều dài thân người, ghi nhận đạt độ sâu của rep này
+      if (normalizedDisplacement >= 0.10) {
+        _isPushUpDeepEnoughInCurrentRep = true;
+      }
     }
 
     // 3. Phân tích tư thế lưng (Shoulder - Hip - Knee)
@@ -129,34 +141,32 @@ class PushUpEvaluator extends BasePoseEvaluator {
       isBackCorrect = true;
     }
 
-    // Khi kiểm tra độ sâu, so sánh với mốc của ĐÚNG BÊN ĐÓ
-    bool isPushUpDeepEnough = (currentShoulderY < _standingShoulderY! + 0.05);
-
     if (elbowAngle < 110) {
       if (_motionState == 'UP') {
         _motionState = 'DOWN';
         _isPostureCorrectInCurrentRep = true;
+        _isPushUpDeepEnoughInCurrentRep = false; // Reset độ sâu cho rep tập mới
         print(
-          'down Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: $currentShoulderY, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $isPushUpDeepEnough,shouldCountRep: $shouldCountRep',
+          'down Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: ${currentShoulder.y}, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $_isPushUpDeepEnoughInCurrentRep,shouldCountRep: $shouldCountRep',
         ); // Reset trạng thái khi bắt đầu xuống
       }
     } else if (elbowAngle > 150) {
       if (_motionState == 'DOWN') {
         _motionState = 'UP';
-        if (_isPostureCorrectInCurrentRep && isPushUpDeepEnough) {
+        if (_isPostureCorrectInCurrentRep && _isPushUpDeepEnoughInCurrentRep) {
           shouldCountRep = true;
           _reps++;
           feedback = 'Tuyệt vời!';
         } else {
           isPostureCorrect = false;
-          if (!isPushUpDeepEnough) {
+          if (!_isPushUpDeepEnoughInCurrentRep) {
             feedback = 'Hãy xuống sâu hơn nữa!';
           } else {
             feedback = 'Lần tập không được tính do sai tư thế!';
           }
         }
         print(
-          'up Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: $currentShoulderY, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $isPushUpDeepEnough,shouldCountRep: $shouldCountRep',
+          'up Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: ${currentShoulder.y}, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $_isPushUpDeepEnoughInCurrentRep,shouldCountRep: $shouldCountRep',
         );
       }
     }

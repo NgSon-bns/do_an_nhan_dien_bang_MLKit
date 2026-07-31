@@ -1,0 +1,248 @@
+# BẢN THIẾT KẾ MÃ NGUỒN & LOGIC THUẬT TOÁN HỆ THỐNG AI FITNESS COACH
+
+Tài liệu này giải thích chi tiết toàn bộ cấu trúc mã nguồn, luồng hoạt động, các công thức toán học, nguồn gốc khoa học (citations), giải thích chi tiết ý nghĩa của tất cả các thông số kỹ thuật được cấu hình trong thuật toán, và quy trình xử lý hình ảnh camera theo thời gian thực (real-time stream pipeline) trong dự án.
+
+---
+
+## I. CẤU TRÚC THƯ MỤC & PHÂN LỚP KIẾN TRÚC (CLEAN ARCHITECTURE)
+
+Dự án được tổ chức theo cấu trúc Clean Architecture chia làm 4 phân lớp chính để dễ quản lý, bảo trì và mở rộng:
+
+```
+lib/
+├── core/                  # Các cấu hình dùng chung toàn hệ thống
+│   ├── theme/             # Định nghĩa màu sắc, font chữ (app_theme.dart)
+│   └── utils/             # Các thư viện tiện ích dùng chung
+│       └── pose_math.dart # Chứa các công thức toán học/lượng giác xử lý tọa độ xương
+├── domain/                # Lớp nghiệp vụ (Core Business Logic) - không phụ thuộc bên ngoài
+│   ├── exercise.dart      # Định nghĩa các bài tập (Squat, Plank, Pushup...) và cấu trúc
+│   └── workout_session.dart# Trạng thái của một phiên tập luyện
+├── data/                  # Lớp dữ liệu (Data & Infrastructure Providers)
+│   └── services/          # Các dịch vụ xử lý dữ liệu và thuật toán AI
+│       ├── auth_service.dart      # Quản lý Đăng nhập/Đăng ký qua Supabase Auth
+│       ├── check_in_service.dart  # Điểm danh hàng ngày & tính Streak chuyên cần
+│       ├── database_service.dart  # Truy vấn & lưu kết quả tập luyện lên PostgreSQL
+│       ├── pose_detector_service.dart # Nhận diện khung xương bằng Google ML Kit Pose
+│       └── pose_analysis/         # Nơi chứa toàn bộ cốt lõi thuật toán đánh giá bài tập
+│           ├── base_pose_evaluator.dart # Interface trừu tượng cho các bộ đánh giá
+│           ├── alignment_helper.dart     # Kiểm tra người dùng đứng đúng khung hình
+│           ├── squat_evaluator.dart
+│           ├── push_up_evaluator.dart
+│           ├── plank_evaluator.dart
+│           ├── jumping_jack_evaluator.dart
+│           ├── walking_lunge_evaluator.dart
+│           └── burpee_evaluator.dart
+└── presentation/          # Lớp giao diện hiển thị (UI / View)
+    ├── screens/           # Các màn hình chính (Dashboard, Camera Room, Profile...)
+    └── widgets/           # Các component UI tái sử dụng (HUD Panel, Skeleton Overlay...)
+```
+
+---
+
+## II. CÁC CÔNG THỨC TOÁN HỌC TRONG `pose_math.dart`
+
+Toàn bộ các phép tính góc và khoảng cách giữa các khớp xương được số hóa bằng hình học Vector dựa trên dữ liệu tọa độ (x, y, z) trả về từ Google ML Kit:
+
+### 1. Tính góc đỉnh B tạo bởi 3 điểm A, B, C (calculateAngle & getElbowAngle)
+Công thức này sử dụng hàm lượng giác ngược `atan2` để tính góc nghiêng của đoạn BA và BC so với trục nằm ngang, sau đó trừ đi nhau để ra góc ở giữa và chuẩn hóa về khoảng [0, 360 độ):
+
+*   **Hiệu radian:** `radians = atan2(c.y - b.y, c.x - b.x) - atan2(a.y - b.y, a.x - b.x)`
+*   **Chuyển sang độ:** `angle = radians * 180.0 / pi`
+*   **Chuẩn hóa góc về [0, 360):** Nếu `angle < 0` thì cộng thêm `360.0`.
+
+Để áp dụng cho các khớp gập (như đầu gối, khuỷu tay) luôn lấy góc nhỏ nhất (góc nhọn/tù dưới 180 độ), hệ thống áp dụng hàm bổ trợ:
+*   Nếu `angle > 180` thì kết quả là `360 - angle`, ngược lại giữ nguyên `angle`.
+
+### 2. Tính khoảng cách Euclidean giữa hai điểm (calculateDistance)
+Tính khoảng cách vật lý giữa hai khớp để phục vụ việc chuẩn hóa tỉ lệ cơ thể hoặc đo độ sâu dịch chuyển:
+*   `distance = sqrt((a.x - b.x)^2 + (a.y - b.y)^2)`
+
+### 3. Tính góc nghiêng của đoạn thẳng so với phương thẳng đứng (calculateAngleToVertical)
+Dùng để đo độ cúi/nghiêng của lưng (đoạn nối từ Vai s đến Hông h) so với trục dọc Y của màn hình:
+*   `dx = |s.x - h.x|`, `dy = |s.y - h.y|`
+*   `angle = atan(dx / dy) * 180.0 / pi`
+
+### 4. Tính góc nghiêng của đoạn thẳng so với phương nằm ngang (calculateAngleToHorizontal)
+Dùng để đo độ phẳng/song song với sàn nhà của cơ thể (đoạn nối từ Vai s đến Hông h) khi tập Plank:
+*   `dx = |s.x - h.x|`, `dy = |s.y - h.y|`
+*   `angle = atan(dy / dx) * 180.0 / pi`
+
+---
+
+## III. THUẬT TOÁN CĂN CHỈNH CAMERA & KHUNG HÌNH BẮT ĐẦU (alignment_helper.dart)
+
+Trước khi bắt đầu đếm số lần tập, hệ thống yêu cầu người tập phải đứng/nằm đúng vào khung hình quy định để tránh mất dấu khớp hoặc đo sai góc do đứng lệch góc.
+
+### 1. Ước lượng góc xoay của cơ thể (Body Yaw Estimation)
+Để biết người dùng đang đứng thẳng đối diện camera hay đứng nghiêng, thuật toán tính độ chênh lệch chiều sâu (tọa độ z) giữa vai trái - vai phải và hông trái - hông phải:
+*   `shoulderYaw = atan2(z_diff_shoulder, x_diff_shoulder) * 180 / pi`
+*   `hipYaw = atan2(z_diff_hip, x_diff_hip) * 180 / pi`
+*   `Yaw = (shoulderYaw + hipYaw) / 2`
+
+*   **Phân loại góc:**
+    *   `|Yaw| <= 25` độ: Đang đứng đối diện thẳng (front).
+    *   `25 < Yaw < 65` độ: Đứng xéo bên trái 45 độ (diagonalLeft).
+    *   `-65 < Yaw < -25` độ: Đứng xéo bên phải 45 độ (diagonalRight).
+    *   Các góc còn lại: Đứng nghiêng hoàn toàn góc 90 độ (side).
+
+### 2. Kiểm tra các khớp nằm trong vùng an toàn (Bounding Box Check)
+*   **Kích thước khung chữ nhật định vị trên màn hình:**
+    *   **Bài đứng dọc (Squat, Jumping Jack, Lunge, Burpee):** Rộng = 65% màn hình, Cao = 80% màn hình, căn giữa.
+    *   **Bài nằm ngang (Plank, Push-up):** Rộng = 90% màn hình, Cao = 45% màn hình, dịch xuống sát sàn.
+*   **Dung sai (Tolerance):** Hệ thống cộng thêm **15%** độ rộng vùng biên để người dùng dễ đứng lọt vào (tránh việc chỉ lệch 1 chút là báo lỗi).
+*   **Điều kiện bắt đầu:**
+    *   Bài đứng dọc yêu cầu phải nhìn thấy đầy đủ 2 vai và 2 hông nằm gọn trong khung hình.
+    *   Bài nằm ngang chỉ cần nhìn thấy hông và vai của 1 bên cơ thể nằm ngang lọt vào khung hình.
+
+---
+
+## IV. LOGIC MÁY TRẠNG THÁI (STATE MACHINE) CỦA 6 BÀI TẬP CỐT LÕI
+
+Mỗi bài tập được cài đặt dưới dạng một Máy Trạng Thái (Finite State Machine) liên tục cập nhật theo từng khung hình camera (30 FPS) để đếm số lần (reps) và kiểm tra tính đúng đắn của tư thế.
+
+### 1. SQUAT (Gánh đùi) - squat_evaluator.dart
+*   **Trạng thái:** `UP` (đứng thẳng) và `DOWN` (ngồi xổm).
+*   **Luật gập gối & hạ hông:**
+    *   Đang ở `UP` -> Chuyển sang `DOWN` khi: Góc đầu gối `< 110` độ **VÀ** cao độ hông thực tế hạ sâu hơn hông lúc đứng thẳng một khoảng bằng: `currentHipY - standingHipY > calculateDistance(hip, knee) * 0.7`.
+    *   Đang ở `DOWN` -> Chuyển về `UP` (Hoàn thành 1 Rep) khi: Góc đầu gối `> 150` độ.
+*   **Kiểm tra lỗi lưng:**
+    *   Nếu góc nghiêng của vai-hông so với phương thẳng đứng `> 45` độ, ghi nhận lỗi gù lưng/đổ người. Nếu lỗi này kéo dài quá 5 frames trong suốt quá trình hạ hông, rep đó sẽ không được tính điểm.
+
+---
+
+### 2. PUSH-UP (Hít đất) - push_up_evaluator.dart
+*   **Trạng thái:** `UP` (thẳng tay) và `DOWN` (hạ ngực sát đất).
+*   **Xác định bên nghiêng người:**
+    *   Tự động so sánh tọa độ X của vai và hông để nhận biết người dùng đang quay nửa người bên trái hay bên phải về phía camera, từ đó sử dụng khớp tương ứng bên đó để tính toán.
+*   **Luật co duỗi khuỷu tay & kiểm tra độ sâu hít đất theo tỷ lệ cơ thể:**
+    *   Đang ở `UP` $\rightarrow$ Chuyển sang `DOWN` khi: Góc khuỷu tay $< 110^\circ$. Hệ thống thực hiện lưu mốc vai ban đầu (`_standingShoulderY`).
+    *   Khi người dùng đi xuống ở pha hạ người, hệ thống liên tục tính độ dịch chuyển dọc của vai chia cho **Độ dài thân người (khoảng cách Vai - Hông)** để chuẩn hóa tỷ lệ cơ thể:
+        $$\text{tỷ lệ dịch chuyển} = \frac{\text{Vai Y hiện tại} - \text{Vai Y lúc thẳng tay}}{\text{Chiều dài thân người}}$$
+        Nếu tỷ lệ này $\ge 0.10$ (tức hạ người xuống sâu tối thiểu bằng 10% chiều dài thân người của chính họ), hệ thống ghi nhận đạt độ sâu của lượt tập đó (`_isPushUpDeepEnoughInCurrentRep = true`).
+    *   Đang ở `DOWN` $\rightarrow$ Chuyển về `UP` (Hoàn thành 1 Rep) khi: Góc khuỷu tay $> 150^\circ$ **VÀ** phải thỏa mãn cả hai điều kiện: Lưng thẳng trong suốt rep tập VÀ ngực đã hạ xuống đủ sâu trước đó.
+*   **Kiểm tra lỗi võng lưng:**
+    *   Góc giữa 3 điểm Vai - Hông - Đầu gối phải thẳng hàng (góc nằm trong khoảng $[152^\circ, 200^\circ]$). Nếu nằm ngoài khoảng này liên tiếp quá **8 khung hình**, báo lỗi gù mông/võng lưng và không đếm rep.
+
+---
+
+### 3. PLANK (Tấm ván) - plank_evaluator.dart
+*   **Cơ chế:** Đếm giây giữ tư thế (Hold Time) thay vì đếm số lần.
+*   **Kiểm tra tư thế nằm ngang (Plank Gate):**
+    *   Để tránh việc người dùng vẫn đang đứng hoặc ngồi mà app đã đếm giây, hệ thống tính góc dốc của đường nối từ Vai đến Cổ chân so với phương ngang. Nếu góc dốc này `> 40` độ -> Bắt buộc dừng đếm và báo: *"Hãy nằm ngang xuống để bắt đầu tập Plank!"*.
+*   **Kiểm tra thẳng lưng song song:**
+    *   Góc Vai - Hông - Cổ chân phải đạt độ thẳng hàng `>= 165` độ.
+    *   **Phát hiện lỗi hông:** Thuật toán tính cao độ hông lý tưởng mong muốn (expectedHipY) dựa trên đường thẳng nối Vai và Cổ chân:
+        `expectedHipY = shoulder.y + (ankle.y - shoulder.y) * (hip.x - shoulder.x) / (ankle.x - shoulder.x)`
+        *   Nếu hông thực tế nằm cao hơn `expectedHipY - 0.04`: Báo lỗi *"Hông quá cao, hãy hạ thấp hông xuống!"*.
+        *   Nếu hông thực tế nằm thấp hơn `expectedHipY + 0.04`: Báo lỗi *"Thân người bị võng, hãy siết cơ bụng nâng hông lên!"*.
+    *   Bộ lọc nhiễu **10 khung hình** liên tiếp được áp dụng trước khi đổi giao diện sang báo lỗi đỏ.
+
+---
+
+### 4. JUMPING JACK (Nhảy dạng tay chân) - jumping_jack_evaluator.dart
+*   **Trạng thái:** `NEUTRAL` (nghiêm trang) và `ACTIVE` (bật nhảy dang tay chân).
+*   **Quy chuẩn tỷ lệ:**
+    *   Đo chiều rộng vai làm thước đo chuẩn để tính độ rộng dạng chân (`feetRatio` = Khoảng cách 2 cổ chân / Chiều rộng 2 vai).
+*   **Luật nhảy dạng chân & tay:**
+    *   Dạng tay chân: Hai tay giơ cao quá vai (tọa độ `wrist.y < shoulder.y`) **VÀ** tỷ lệ chân mở rộng `feetRatio > 1.45` (chuyển sang `ACTIVE`).
+    *   Khép tay chân: Hai tay hạ thấp xuống dưới vai một khoảng cách tối thiểu bằng 40% chiều rộng vai **VÀ** tỷ lệ khép chân `feetRatio < 1.15` (chuyển về `NEUTRAL` và cộng 1 rep).
+*   **Kiểm tra lỗi:**
+    *   Nếu dạng chân nhưng tay không giơ quá đầu: Báo *"Vung tay cao hơn qua đầu!"*.
+    *   Nếu giơ tay cao nhưng chân không nhảy dạng ra: Báo *"Nhảy dạng chân rộng ra hơn!"*.
+    *   Bộ lọc nhiễu: Cho phép sai lệch tối đa **4 khung hình** trước khi loại bỏ kết quả rep hiện tại.
+
+---
+
+### 5. WALKING LUNGE (Bước chùng chân) - walking_lunge_evaluator.dart
+*   **Trạng thái:** `stand` (đứng thẳng) và `lunge` (bước tấn).
+*   **Luật gập gối đôi:**
+    *   Đang ở `stand` -> Chuyển sang `lunge` khi: Cả hai đầu gối trái và gối phải cùng gập sâu dưới góc `110` độ (bước tấn thấp trọng tâm xuống).
+    *   Đang ở `lunge` -> Chuyển về `stand` (Hoàn thành 1 Rep) khi: Cả hai đầu gối cùng duỗi thẳng mở rộng góc trên `150` độ.
+*   **Kiểm tra lỗi lưng:**
+    *   Tính độ nghiêng lưng trung bình của hai bên hông vai so với trục thẳng đứng. Nếu góc nghiêng này vượt quá `20` độ (người tập bị khom người/chúi ngực về phía trước quá nhiều), báo lỗi gù lưng và hủy bỏ lượt đếm rep đó.
+
+---
+
+### 6. BURPEE (Hít đất bật nhảy - Bài tập phức hợp) - burpee_evaluator.dart
+*   **Các chuyển đổi đặc biệt chống mất dấu khớp (Shortcut Transitions):**
+    *   Khi người tập thực hiện động tác quá nhanh khiến camera bị nhòe hình: Nếu phát hiện thân người nằm ngang (Plank) bất chấp trạng thái trước đó đang là `stand` hay `squat`, hệ thống tự chuyển thẳng máy trạng thái sang `plank` để đếm tiếp.
+*   **Luật nhảy cao kiểm tra:**
+    *   Đo khoảng cách thân người từ Vai đến Hông làm chiều dài cơ sở (torsoLength).
+    *   Bật nhảy hợp lệ được tính khi: Hông di chuyển cao hơn chiều cao hông lúc đứng thẳng một khoảng bằng: `hip.y < standingHipY - 0.03 * torsoLength`.
+    *   Đồng thời hai cổ tay phải giơ cao vượt qua vai.
+*   **Cơ chế dự phòng toàn cục (Global Recovery Rule):**
+    *   Chỉ cần hệ thống đã ghi nhận người dùng từng ở tư thế `plank`, nay họ đã đứng dậy thẳng lưng và giơ tay nhảy lên, hệ thống sẽ **tự động ép hoàn thành 1 Rep** hợp lệ và đưa máy trạng thái về `stand` để tránh lỗi camera mất nét làm kẹt máy trạng thái.
+
+---
+
+## V. NGUỒN GỐC KHOA HỌC CỦA CÁC THUẬT TOÁN (SCIENTIFIC CITED SOURCES)
+
+Toàn bộ các ngưỡng kiểm tra, công thức tính calo, BMR và chỉ số sinh học trong ứng dụng đều được xây dựng dựa trên các nghiên cứu khoa học chính thống đã được công bố:
+
+1.  **Nhận diện khung xương 3D (Pose Estimation):** 
+    Sử dụng giải pháp **Google BlazePose** thuộc thư viện Google ML Kit. Thuật toán này dựa trên bài báo khoa học gốc của nhóm nghiên cứu Google: *“BlazePose: On-device Real-time Body Pose tracking”* (Bazarevsky et al., 2020) và mô hình GHUM 3D biểu diễn 33 điểm mốc (landmarks) khớp xương trên cơ thể người.
+2.  **Đánh giá góc gập khớp gối và luật an toàn sinh học:**
+    *   Ngưỡng góc gối Squat & Lunge dưới $110^\circ$ để tính là đạt độ sâu dựa trên **Hướng dẫn tập luyện của Hiệp hội Y học Thể thao Hoa Kỳ (ACSM - American College of Sports Medicine Guidelines for Exercise Testing and Prescription)**.
+    *   Quy định góc nghiêng của lưng trong bài Squat ($<45^\circ$) và Walking Lunge ($<20^\circ$) để tránh chấn thương cột sống thắt lưng được trích dẫn trực tiếp từ các nghiên cứu cơ sinh học lực nén đĩa đệm lưng của tác giả Cholewicki et al.
+3.  **Công thức tính năng lượng tiêu hao cơ bản (BMR):**
+    Ứng dụng áp dụng công thức **Mifflin-St Jeor** (Mifflin et al., 1990) - đây là công thức chuẩn xác nhất hiện nay được khuyến nghị bởi Hiệp hội Dinh dưỡng Hoa Kỳ (ADA) để tính tỷ lệ trao đổi chất cơ bản:
+    *   *Nam giới:* $BMR = (10 \times W) + (6.25 \times H) - (5 \times A) + 5$
+    *   *Nữ giới:* $BMR = (10 \times W) + (6.25 \times H) - (5 \times A) - 161$
+    *(Trong đó: W là cân nặng tính bằng kg, H là chiều cao tính bằng cm, A là số tuổi).*
+4.  **Công thức tính lượng Calo tiêu thụ qua bài tập (Calories Burned):**
+    Được tính toán dựa trên chỉ số **MET (Metabolic Equivalent of Task - Đương lượng chuyển hóa)** quy đổi từ *Compendium of Physical Activities* (Nội điển Hoạt động Thể chất của Ainsworth et al.):
+    *   Squat/Lunge trung bình: $5.0 \text{ METs}$
+    *   Push-up/Plank: $4.0 \text{ METs}$
+    *   Jumping Jack: $8.0 \text{ METs}$
+    *   Burpee: $8.0 - 10.0 \text{ METs}$
+    *   *Công thức:* $\text{Calories Burned} = \text{METs} \times 3.5 \times \frac{\text{Cân nặng (kg)}}{200} \times \text{Thời gian (phút)}$.
+
+---
+
+## VI. GIẢI THÍCH CHI TIẾT CÁC THÔNG SỐ TRONG THUẬT TOÁN (ALGORITHM PARAMETERS EXPLAINED)
+
+Các thông số khai báo với tiền tố dấu gạch dưới (`_`) trong code là các siêu tham số (hyperparameters) được tinh chỉnh qua thực nghiệm để đạt độ chính xác tối ưu:
+
+### 1. Ngưỡng tin cậy nhận diện (`_landmarkConfidenceThreshold = 0.55 / 0.45`)
+*   **Ý nghĩa:** Khi camera quét hình ảnh, ML Kit trả về một điểm kèm mức độ tin cậy từ $0.0$ đến $1.0$ (likelihood).
+*   **Giải thích:** Nếu giá trị likelihood của một khớp (ví dụ: cổ chân) bé hơn $0.55$ (hoặc $0.45$ cho Plank), hệ thống sẽ coi như khớp đó đang bị che khuất (ví dụ do mặc đồ rộng hoặc tay che mất) và sẽ **bỏ qua không xử lý** để tránh tính toán sai góc do khớp bị nhảy lệch vị trí.
+
+### 2. Bộ lọc nhiễu khung hình (`_maxAllowedErrorFrames = 4 / 5 / 8 / 10`)
+*   **Ý nghĩa:** Khi người dùng đang tập đúng, camera có thể bị rung hoặc trôi frame trong khoảng 1-2 khung hình khiến góc khớp bị tính sai lệch tạm thời.
+*   **Giải thích:** Nếu không có bộ lọc này, app sẽ liên tục báo lỗi nhấp nháy đỏ-xanh tạo cảm giác giật cục. Chúng ta thiết lập bộ lọc: chỉ khi người dùng **sai tư thế liên tục vượt quá số khung hình cho phép** (ví dụ quá 5 frames đối với Squat hoặc quá 10 frames đối với Plank, tương đương khoảng $0.15 - 0.3$ giây), hệ thống mới chính thức chuyển trạng thái sang báo đỏ cảnh báo và phạt không tính rep tập.
+
+### 3. Tỷ lệ chuẩn hóa nhân trắc học (`feetRatio`, `torsoLength`)
+*   **Ý nghĩa:** Khoảng cách pixel giữa chân và vai sẽ thay đổi tùy thuộc vào việc người tập đang đứng gần hay đứng xa camera điện thoại.
+*   **Giải thích:** Để giải quyết việc này, hệ thống không dùng khoảng cách pixel cố định (ví dụ 100px) mà dùng tỷ lệ:
+    *   `feetRatio = feetDistance / shoulderWidth`: Lấy khoảng cách giữa hai vai làm thước đo chuẩn để kiểm tra độ rộng dạng chân khi bật nhảy Jumping Jack. Nếu tỷ lệ này vượt quá $1.45$ lần chiều rộng vai thì mới tính là dạng chân.
+    *   `torsoLength`: Đo chiều dài thân người từ Vai đến Hông làm gốc tọa độ. Khi người dùng bật nhảy Burpee, hông phải di chuyển cao hơn một khoảng tối thiểu bằng $3\%$ độ dài thân người ($0.03 \times \text{torsoLength}$) thì mới ghi nhận là có bật nhảy lên không trung.
+
+---
+
+## VII. PHƯƠNG PHÁP XỬ LÝ LUỒNG FRAME CAMERA (CAMERA STREAM PIPELINE & THROTTLING)
+
+Để chạy được AI mượt mà trên điện thoại di động tầm trung mà không làm nóng máy hay đơ máy, lớp `workout_screen.dart` áp dụng hai cơ chế cực kỳ thông minh:
+
+### 1. Cơ chế giới hạn tần suất xử lý (Throttling)
+*   Camera điện thoại thu về hình ảnh ở tốc độ 30 - 60 FPS. Việc đưa toàn bộ các khung ảnh này qua mô hình AI ML Kit sẽ làm quá tải CPU/GPU ngay lập tức.
+*   **Trong code:** Hệ thống chặn lại bằng một bộ đệm thời gian:
+    `if (!_isProcessing && mounted && (now - _lastFrameTimeMs >= 120))`
+    *   Lệnh này chỉ cho phép xử lý khung ảnh tiếp theo sau khi khung ảnh trước đã xử lý xong **VÀ khoảng thời gian cách nhau tối thiểu là 120 mili-giây** (tương đương tốc độ quét tối đa là $\approx 8.3$ khung hình/giây). Tốc độ 8 FPS này là vừa đủ để nhận diện chuyển động cơ thể người tập thời gian thực, đồng thời giúp thiết bị chạy mát, không hao pin.
+
+### 2. Cơ chế đếm giây tuyệt đối của bài PLANK
+*   Đối với Plank, người dùng chỉ được tính điểm khi giữ đúng tư thế.
+*   **Trong code:** Bộ đếm thời gian `Timer.periodic` kích hoạt mỗi giây sẽ kiểm tra đồng thời 3 điều kiện:
+    `if (_isPoseDetected && _session.isPostureCorrect && _isFullBodyVisible)`
+    *   Tức là giây đếm ngược tập Plank chỉ tăng lên **KHI VÀ CHỈ KHI**: Máy phát hiện được cơ thể người, người đó tập đúng tư thế (không gù, không võng hông), và toàn thân nằm gọn trong khung hình. Nếu vi phạm 1 trong 3 điều kiện này, đồng hồ đếm giây sẽ lập tức đứng yên!
+
+---
+
+## VIII. CẤU TRÚC ĐÁNH GIÁ TỔNG THỂ VÀ CHIA SET TẬP (OVERALL EVALUATION & SET PLAN)
+
+*   **Chuyển đổi trạng thái lỗi:**
+    Trong hàm `_analyzePose`, hệ thống so sánh trạng thái đúng/sai giữa khung hình hiện tại và khung hình trước đó:
+    `if (!result.isPostureCorrect && _wasPostureCorrectLastFrame)`
+    *   Chỉ khi người tập bắt đầu chuyển từ tư thế ĐÚNG sang tư thế SAI, bộ đếm lỗi `incorrectPostureCount` mới cộng 1. Điều này giúp đếm chính xác số lần người dùng làm sai tư thế trong suốt buổi tập thay vì đếm dồn dập theo số frame.
+*   **Tự động phân chia Set và Nghỉ giữa giờ (Rest Timer):**
+    Hệ thống tự động đọc mảng kế hoạch tập luyện, ví dụ: `_setPlan = [5, 5, 10]` (tương đương Set 1 tập 5 cái, Set 2 tập 5 cái, Set 3 tập 10 cái).
+    *   Khi người dùng đạt đủ số lần của Set hiện tại, hệ thống tự động khóa camera, kích hoạt trạng thái nghỉ `_session.isResting = true`, và đếm ngược thời gian nghỉ 30 giây kèm giọng nói nhắc nhở để người dùng hồi phục cơ bắp trước khi vào Set tiếp theo.
