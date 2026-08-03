@@ -4,7 +4,21 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class DatabaseService {
   SupabaseClient get _client => Supabase.instance.client;
 
-  /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL
+  /// Lấy toàn bộ danh sách bài tập động từ bảng 'bai_tap' trên Supabase
+  Future<List<Map<String, dynamic>>> getExercisesFromDatabase() async {
+    try {
+      final List<dynamic> data = await _client
+          .from('bai_tap')
+          .select()
+          .order('ma_bai_tap', ascending: true);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (e) {
+      debugPrint('Lỗi lấy danh sách bài tập từ CSDL: $e');
+      return [];
+    }
+  }
+
+  /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL (Tiếng Việt)
   Future<void> saveWorkoutResult({
     required String exerciseType,
     required int repsCount,
@@ -22,16 +36,15 @@ class DatabaseService {
           ? '$exerciseType::$repsCount::recommended'
           : '$exerciseType::$repsCount::custom';
 
-      await _client.from('workout_history').insert({
-        'user_id': user.id,
-        'exercise_id': exerciseIdValue,
-        'reps_count': repsCount,
-        'duration_seconds': durationSeconds,
-        'calories_burned': caloriesBurned,
-        'incorrect_postures': incorrectPostures,
+      await _client.from('lich_su_tap_luyen').insert({
+        'ma_nguoi_dung': user.id,
+        'ma_bai_tap_rieng': exerciseIdValue,
+        'so_lan_tap': repsCount,
+        'thoi_gian_tap': durationSeconds,
+        'calo_tieu_hao': caloriesBurned,
+        'so_lan_sai_tu_the': incorrectPostures,
       });
     } catch (e) {
-      // Bỏ qua lỗi hoặc in debug log để tránh crash màn hình
       debugPrint('Lỗi đồng bộ lịch sử tập: $e');
     }
   }
@@ -45,9 +58,9 @@ class DatabaseService {
 
     try {
       final List<dynamic> data = await _client
-          .from('workout_history')
-          .select('calories_burned, duration_seconds')
-          .eq('user_id', user.id);
+          .from('lich_su_tap_luyen')
+          .select('calories_burned:calo_tieu_hao, duration_seconds:thoi_gian_tap')
+          .eq('ma_nguoi_dung', user.id);
 
       double totalCalories = 0.0;
       int totalSeconds = 0;
@@ -77,31 +90,29 @@ class DatabaseService {
     if (user == null) return [];
 
     try {
-      // Để tránh lệch múi giờ giữa UTC trên Supabase và giờ địa phương (Local Time),
-      // ta truy vấn dữ liệu trong khoảng rộng (-1 ngày đến +2 ngày) rồi lọc chính xác theo ngày địa phương.
       final startQuery = DateTime.utc(day.year, day.month, day.day).subtract(const Duration(days: 1));
       final endQuery = DateTime.utc(day.year, day.month, day.day).add(const Duration(days: 2));
 
       final List<dynamic> data = await _client
-          .from('workout_history')
-          .select('exercise_id, reps_count, created_at')
-          .eq('user_id', user.id)
-          .gte('created_at', startQuery.toIso8601String())
-          .lt('created_at', endQuery.toIso8601String());
+          .from('lich_su_tap_luyen')
+          .select('ma_bai_tap_rieng, so_lan_tap, ngay_tao')
+          .eq('ma_nguoi_dung', user.id)
+          .gte('ngay_tao', startQuery.toIso8601String())
+          .lt('ngay_tao', endQuery.toIso8601String());
 
       final String targetDateStr = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
       final List<Map<String, dynamic>> filteredList = [];
 
       for (var row in data) {
-        final String? createdAtStr = row['created_at'] as String?;
+        final String? createdAtStr = row['ngay_tao'] as String?;
         if (createdAtStr != null) {
           final DateTime localDateTime = DateTime.parse(createdAtStr).toLocal();
           final String localDateStr = '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
           
           if (localDateStr == targetDateStr) {
             filteredList.add({
-              'exercise_id': (row['exercise_id'] as String?) ?? '',
-              'reps_count': (row['reps_count'] as num?)?.toInt() ?? 0,
+              'exercise_id': (row['ma_bai_tap_rieng'] as String?) ?? '',
+              'reps_count': (row['so_lan_tap'] as num?)?.toInt() ?? 0,
             });
           }
         }
@@ -109,7 +120,7 @@ class DatabaseService {
 
       return filteredList;
     } catch (e) {
-      debugPrint('Lỗi truy vấn workout_history theo ngày: $e');
+      debugPrint('Lỗi truy vấn lịch sử theo ngày: $e');
       return [];
     }
   }
@@ -129,10 +140,10 @@ class DatabaseService {
 
     try {
       final List<dynamic> data = await _client
-          .from('workout_history')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false)
+          .from('lich_su_tap_luyen')
+          .select('exercise_id:ma_bai_tap_rieng, reps_count:so_lan_tap, duration_seconds:thoi_gian_tap, calories_burned:calo_tieu_hao, incorrect_postures:so_lan_sai_tu_the, created_at:ngay_tao')
+          .eq('ma_nguoi_dung', user.id)
+          .order('ngay_tao', ascending: false)
           .limit(limit);
 
       return List<Map<String, dynamic>>.from(data);

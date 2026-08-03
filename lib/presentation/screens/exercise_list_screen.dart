@@ -44,12 +44,16 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   bool _isLoadingCheckIn = true;
   Map<String, dynamic>? _todayDraftWorkout;
 
+  // Danh sách bài tập lấy từ database tiếng Việt (mặc định fallback về local list)
+  List<ExerciseDetail> _exercisesList = ExerciseDetail.defaultExercises;
+
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
     _loadCheckInData();
     _refreshTodayDraftWorkout();
+    _loadExercisesFromDb();
   }
 
   Future<void> _clearTodayDraftWorkout() async {
@@ -214,6 +218,74 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
           _isLoadingStats = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadExercisesFromDb() async {
+    if (!_isSupabaseInitialized) {
+      return;
+    }
+
+    try {
+      final dbData = await _databaseService.getExercisesFromDatabase();
+      if (dbData.isNotEmpty && mounted) {
+        final List<ExerciseDetail> updatedList = [];
+        for (var row in dbData) {
+          final String ma = row['ma_bai_tap'] as String;
+          final localEx = ExerciseDetail.defaultExercises.firstWhere(
+            (e) => e.type.name == _mapIdToTypeName(ma),
+            orElse: () => ExerciseDetail.defaultExercises.first,
+          );
+
+          // Lấy mảng danh sách từ database hoặc dự phòng cục bộ
+          final List<String> listInstructions = [];
+          if (row['huong_dan_tap'] is List) {
+            listInstructions.addAll((row['huong_dan_tap'] as List).map((e) => e.toString()));
+          } else {
+            listInstructions.addAll(localEx.instructions);
+          }
+
+          final List<String> listBenefits = [];
+          if (row['loi_ich'] is List) {
+            listBenefits.addAll((row['loi_ich'] as List).map((e) => e.toString()));
+          } else {
+            listBenefits.addAll(localEx.benefits);
+          }
+
+          updatedList.add(ExerciseDetail(
+            type: localEx.type,
+            name: (row['ten_bai_tap'] as String?) ?? localEx.name,
+            description: (row['mo_ta'] as String?) ?? localEx.description,
+            icon: localEx.icon,
+            instructions: listInstructions,
+            isDurationBased: (row['tinh_theo_thoi_gian'] as bool?) ?? localEx.isDurationBased,
+            targetValue: (row['muc_tieu_so_lan'] as num?)?.toInt() ?? localEx.targetValue,
+            difficulty: (row['do_kho'] as String?) ?? localEx.difficulty,
+            caloriesPerMin: (row['calo_moi_phut'] as num?)?.toDouble() ?? localEx.caloriesPerMin,
+            category: (row['nhom_bai_tap'] as String?) ?? localEx.category,
+            focusArea: (row['vung_co_tac_dong'] as String?) ?? localEx.focusArea,
+            equipment: (row['dung_cu'] as String?) ?? localEx.equipment,
+            isAiEnabled: (row['ho_tro_ai'] as bool?) ?? localEx.isAiEnabled,
+            estimatedDurationSeconds: (row['thoi_gian_uoc_tinh_giay'] as num?)?.toInt() ?? localEx.estimatedDurationSeconds,
+            benefits: listBenefits,
+          ));
+        }
+
+        setState(() {
+          _exercisesList = updatedList;
+        });
+      }
+    } catch (e) {
+      debugPrint('Lỗi tải bài tập động: $e');
+    }
+  }
+
+  String _mapIdToTypeName(String id) {
+    switch (id) {
+      case 'push_up': return 'pushUp';
+      case 'walking_lunge': return 'walkingLunge';
+      case 'jumping_jack': return 'jumpingJack';
+      default: return id;
     }
   }
 
@@ -526,7 +598,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final exercises = ExerciseDetail.defaultExercises;
+    final exercises = _exercisesList;
 
     return Scaffold(
       body: SafeArea(
@@ -1086,12 +1158,12 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 if (draft == null) return;
                                 final exerciseTypeName =
                                     draft['exerciseType'] as String?;
-                                final exercise = ExerciseDetail.defaultExercises
+                                final exercise = _exercisesList
                                     .firstWhere(
                                       (item) =>
                                           item.type.name == exerciseTypeName,
                                       orElse: () =>
-                                          ExerciseDetail.defaultExercises.first,
+                                          _exercisesList.first,
                                     );
                                 await Navigator.push(
                                   context,

@@ -27,12 +27,12 @@ class AuthService {
       type: OtpType.signup,
     );
 
-    // Sau khi xác thực OTP thành công, người dùng đã đăng nhập, tiến hành lưu profile vào bảng profiles
+    // Sau khi xác thực OTP thành công, lưu profile vào bảng ho_so_nguoi_dung
     if (response.user != null) {
-      await _client.from('profiles').insert({
-        'id': response.user!.id,
+      await _client.from('ho_so_nguoi_dung').insert({
+        'ma_nguoi_dung': response.user!.id,
         'email': email,
-        'full_name': fullName,
+        'ho_ten': fullName,
       });
     }
 
@@ -45,10 +45,10 @@ class AuthService {
     required String email,
     required String fullName,
   }) async {
-    await _client.from('profiles').insert({
-      'id': userId,
+    await _client.from('ho_so_nguoi_dung').insert({
+      'ma_nguoi_dung': userId,
       'email': email,
-      'full_name': fullName,
+      'ho_ten': fullName,
     });
   }
 
@@ -71,14 +71,12 @@ class AuthService {
     required String token,
     required String newPassword,
   }) async {
-    // Xác thực mã OTP khôi phục (thiết lập phiên làm việc tạm thời cho user này)
     await _client.auth.verifyOTP(
       email: email,
       token: token,
       type: OtpType.recovery,
     );
 
-    // Tiến hành cập nhật mật khẩu mới cho user
     return await _client.auth.updateUser(
       UserAttributes(password: newPassword),
     );
@@ -113,9 +111,9 @@ class AuthService {
 
     try {
       final data = await _client
-          .from('profiles')
-          .select()
-          .eq('id', user.id)
+          .from('ho_so_nguoi_dung')
+          .select('id:ma_nguoi_dung, email, full_name:ho_ten, weight:can_nang, height:chieu_cao, age:tuoi, gender:gioi_tinh, goal:muc_tieu, ExcludedIngredients:thanh_phan_di_ung')
+          .eq('ma_nguoi_dung', user.id)
           .maybeSingle();
       return data;
     } catch (e) {
@@ -135,27 +133,26 @@ class AuthService {
     if (user == null) return;
 
     final Map<String, dynamic> updateData = {
-      'full_name': fullName,
-      'weight': weight,
-      'height': height,
+      'ho_ten': fullName,
+      'can_nang': weight,
+      'chieu_cao': height,
     };
 
     if (age != null) {
-      updateData['age'] = age;
+      updateData['tuoi'] = age;
     }
     if (gender != null) {
-      updateData['gender'] = gender;
+      updateData['gioi_tinh'] = gender;
     }
 
     try {
-      await _client.from('profiles').update(updateData).eq('id', user.id);
+      await _client.from('ho_so_nguoi_dung').update(updateData).eq('ma_nguoi_dung', user.id);
     } catch (e) {
-      // Nếu cột 'age' hoặc 'gender' chưa tồn tại trong Supabase, loại bỏ và cập nhật lại để tránh lỗi crash
       debugPrint('Lỗi cập nhật thông số profile: $e');
       if (age != null || gender != null) {
-        updateData.remove('age');
-        updateData.remove('gender');
-        await _client.from('profiles').update(updateData).eq('id', user.id);
+        updateData.remove('tuoi');
+        updateData.remove('gioi_tinh');
+        await _client.from('ho_so_nguoi_dung').update(updateData).eq('ma_nguoi_dung', user.id);
       } else {
         rethrow;
       }

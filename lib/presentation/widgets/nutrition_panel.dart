@@ -218,11 +218,11 @@ class _NutritionPanelState extends State<NutritionPanel> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // Sử dụng đồng bộ tên cột viết thường chuẩn hóa database: 'ExcludedIngredients '
+      // Sử dụng đồng bộ tên cột viết thường chuẩn hóa database: 'ho_so_nguoi_dung'
       await Supabase.instance.client
-          .from('profiles')
-          .update({'ExcludedIngredients': newList})
-          .eq('id', user.id);
+          .from('ho_so_nguoi_dung')
+          .update({'thanh_phan_di_ung': newList})
+          .eq('ma_nguoi_dung', user.id);
 
       if (!mounted) return;
 

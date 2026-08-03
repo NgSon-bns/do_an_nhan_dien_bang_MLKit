@@ -65,27 +65,27 @@ class CheckInService {
 
       try {
         final List<dynamic> data = await client
-            .from('check_ins')
-            .select('check_in_date')
-            .eq('user_id', userId);
+            .from('diem_danh')
+            .select('ngay_diem_danh')
+            .eq('ma_nguoi_dung', userId);
 
         for (var row in data) {
-          final String? dateStr = row['check_in_date'] as String?;
+          final String? dateStr = row['ngay_diem_danh'] as String?;
           if (dateStr != null && !datesFromDb.contains(dateStr)) {
             datesFromDb.add(dateStr);
           }
         }
       } catch (dbError) {
-        debugPrint('Bảng check_ins chưa sẵn sàng, thử tải từ workout_history: $dbError');
+        debugPrint('Bảng diem_danh chưa sẵn sàng, thử tải từ lich_su_tap_luyen: $dbError');
         try {
           final List<dynamic> data = await client
-              .from('workout_history')
-              .select('created_at')
-              .eq('user_id', userId)
-              .like('exercise_id', 'check_in%');
+              .from('lich_su_tap_luyen')
+              .select('ngay_tao')
+              .eq('ma_nguoi_dung', userId)
+              .like('ma_bai_tap_rieng', 'check_in%');
 
           for (var row in data) {
-            final String? createdAt = row['created_at'] as String?;
+            final String? createdAt = row['ngay_tao'] as String?;
             if (createdAt != null) {
               final dateStr = createdAt.substring(0, 10); // yyyy-MM-dd
               if (!datesFromDb.contains(dateStr)) {
@@ -172,19 +172,19 @@ class CheckInService {
     await prefs.setString(_lastKey(userId), today);
     await prefs.setInt(_streakKey(userId), newStreak);
 
-    // Đồng bộ lên CSDL Supabase
+    // Đồng bộ lên CSDL Supabase (Tiếng Việt)
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user != null) {
         try {
-          await client.from('check_ins').insert({
-            'user_id': user.id,
-            'check_in_date': today,
+          await client.from('diem_danh').insert({
+            'ma_nguoi_dung': user.id,
+            'ngay_diem_danh': today,
           });
-          debugPrint('Đã lưu thành công điểm danh vào bảng check_ins cho user: ${user.id}');
+          debugPrint('Đã lưu thành công điểm danh vào bảng diem_danh cho user: ${user.id}');
         } catch (checkInErr) {
-          debugPrint('Lỗi insert bảng check_ins (Khả năng do thiếu RLS Policy): $checkInErr');
+          debugPrint('Lỗi insert bảng diem_danh: $checkInErr');
           await _databaseService.saveWorkoutResult(
             exerciseType: 'check_in',
             repsCount: 1,

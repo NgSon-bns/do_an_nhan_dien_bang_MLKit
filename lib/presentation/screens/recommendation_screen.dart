@@ -300,14 +300,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         final userId = client.auth.currentUser?.id;
         if (userId != null) {
           await client
-              .from('profiles')
+              .from('ho_so_nguoi_dung')
               .update({
-                'height': newHeight,
-                'weight': newWeight,
-                'age': newAge,
-                'gender': newGender,
+                'chieu_cao': newHeight,
+                'can_nang': newWeight,
+                'tuoi': newAge,
+                'gioi_tinh': newGender,
               })
-              .eq('id', userId);
+              .eq('ma_nguoi_dung', userId);
         }
       }
 
@@ -351,19 +351,13 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       if (userId != null) {
         try {
           await client
-              .from('profiles')
-              .update({'goal': newGoal})
-              .eq('id', userId);
+              .from('ho_so_nguoi_dung')
+              .update({'muc_tieu': newGoal})
+              .eq('ma_nguoi_dung', userId);
         } catch (dbError) {
           debugPrint(
-            'Thử lưu cột goal thất bại (có thể thiếu cột), thử fitness_goal: $dbError',
+            'Lỗi cập nhật mục tiêu CSDL: $dbError',
           );
-          try {
-            await client
-                .from('profiles')
-                .update({'fitness_goal': newGoal})
-                .eq('id', userId);
-          } catch (_) {}
         }
       }
     } catch (e) {
