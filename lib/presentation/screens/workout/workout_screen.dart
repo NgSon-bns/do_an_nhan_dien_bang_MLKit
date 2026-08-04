@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, FileOptions;
 
 import 'package:demo/core/theme/app_theme.dart';
 
@@ -17,6 +17,7 @@ import 'package:demo/data/services/pose_analysis/alignment_helper.dart';
 import 'package:demo/data/services/pose_detector_service.dart';
 import 'package:demo/data/services/database_service.dart';
 import 'package:demo/data/services/workout_draft_service.dart';
+import 'package:demo/data/services/pose_analysis/image_baking_service.dart';
 import 'widgets/camera_stream_view.dart';
 import 'widgets/workout_hud_panel.dart';
 import 'widgets/pose_skeleton_painter.dart';
@@ -82,6 +83,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   final int _requiredAlignedFrames = 12; // Khoảng 0.4s để tránh nhiễu
   String _alignmentFeedback = 'Hãy di chuyển vào khung hình';
   Size? _imageSize;
+
+  // Lưu trữ ảnh tập sai và trạng thái chụp hình
+  final List<File> _capturedErrorImages = [];
+  bool _isCapturingError = false;
 
   @override
   void initState() {
@@ -491,6 +496,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // Cập nhật số lần lỗi tư thế khi chuyển đổi trạng thái từ Đúng sang Sai
     if (!result.isPostureCorrect && _wasPostureCorrectLastFrame) {
       _session.incorrectPostureCount++;
+      _captureIncorrectPose(pose, result.feedbackMessage ?? 'Sai tư thế');
     }
 
     if (result.shouldCountRep) {
@@ -531,6 +537,120 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     });
 
     _wasPostureCorrectLastFrame = result.isPostureCorrect;
+  }
+
+  Future<void> _captureIncorrectPose(Pose pose, String feedbackMessage) async {
+    if (_isCapturingError || _capturedErrorImages.length >= 3) return;
+    _isCapturingError = true;
+
+    try {
+      // 1. Chụp ảnh thứ nhất ngay lập tức (Bắt đầu sai)
+      await _executeSingleCapture(pose, '$feedbackMessage (Bắt đầu sai)');
+
+      // 2. Chụp ảnh thứ hai sau 600ms nếu vẫn đang ở tư thế sai và chưa đủ 3 ảnh
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted && !_session.isPostureCorrect && _capturedErrorImages.length < 3) {
+        final currentPose = _poses.isNotEmpty ? _poses.first : pose;
+        await _executeSingleCapture(currentPose, '$feedbackMessage (Giữa nhịp)');
+      }
+
+      // 3. Chụp ảnh thứ ba sau 600ms nữa nếu vẫn đang ở tư thế sai và chưa đủ 3 ảnh
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted && !_session.isPostureCorrect && _capturedErrorImages.length < 3) {
+        final currentPose = _poses.isNotEmpty ? _poses.first : pose;
+        await _executeSingleCapture(currentPose, '$feedbackMessage (Cuối nhịp)');
+      }
+    } catch (e) {
+      debugPrint('Lỗi chuỗi chụp ảnh sai tư thế: $e');
+    } finally {
+      _isCapturingError = false;
+    }
+  }
+
+  Future<void> _executeSingleCapture(Pose pose, String label) async {
+    if (!_cameraController.value.isInitialized) return;
+    final XFile photo = await _cameraController.takePicture();
+    final File originalFile = File(photo.path);
+
+    final Map<String, Offset> landmarksMap = {};
+    final List<PoseLandmarkType> interestJoints = [
+      PoseLandmarkType.leftShoulder,
+      PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.leftElbow,
+      PoseLandmarkType.rightElbow,
+      PoseLandmarkType.leftWrist,
+      PoseLandmarkType.rightWrist,
+      PoseLandmarkType.leftHip,
+      PoseLandmarkType.rightHip,
+      PoseLandmarkType.leftKnee,
+      PoseLandmarkType.rightKnee,
+      PoseLandmarkType.leftAnkle,
+      PoseLandmarkType.rightAnkle,
+    ];
+
+    for (var type in interestJoints) {
+      final lm = pose.landmarks[type];
+      if (lm != null) {
+        String name = type.name;
+        if (name.contains('left')) {
+          name = name.replaceAll('left', '').toLowerCase();
+        } else if (name.contains('right')) {
+          name = name.replaceAll('right', '').toLowerCase();
+        }
+        landmarksMap[name] = Offset(lm.x, lm.y);
+      }
+    }
+
+    final double sWidth = _imageSize?.width ?? 640.0;
+    final double sHeight = _imageSize?.height ?? 480.0;
+
+    final ImageBakingService bakingService = ImageBakingService();
+    final File bakedFile = await bakingService.bakeSkeleton(
+      originalImageFile: originalFile,
+      landmarks: landmarksMap,
+      streamWidth: sWidth,
+      streamHeight: sHeight,
+      exerciseId: widget.exercise.type.name,
+      errorMessage: label,
+      isPostureCorrect: false,
+      sensorOrientation: _cameraController.description.sensorOrientation,
+      isFrontCamera: _cameraController.description.lensDirection == CameraLensDirection.front,
+    );
+
+    _capturedErrorImages.add(bakedFile);
+    debugPrint('Đã chụp nhịp sai tư thế: $label -> ${bakedFile.path}');
+  }
+
+  Future<List<String>> _uploadErrorImages() async {
+    final List<String> urls = [];
+    if (_capturedErrorImages.isEmpty) return urls;
+
+    try {
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return urls;
+
+      final workoutId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      for (int i = 0; i < _capturedErrorImages.length; i++) {
+        final File file = _capturedErrorImages[i];
+        final String storagePath = '$userId/$workoutId/loi_$i.png';
+
+        // Tải ảnh lên bucket 'anh_tap_sai'
+        await supabase.storage.from('anh_tap_sai').upload(
+          storagePath,
+          file,
+          fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+        );
+
+        // Lấy URL công khai
+        final String publicUrl = supabase.storage.from('anh_tap_sai').getPublicUrl(storagePath);
+        urls.add(publicUrl);
+      }
+    } catch (e) {
+      debugPrint('Lỗi tải ảnh lỗi lên Supabase: $e');
+    }
+    return urls;
   }
 
   /// Thuật toán kiểm tra toàn thân người hoàn chỉnh trước khi nhận diện (Độ tin cậy >= 0.70)
@@ -860,6 +980,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       );
 
       try {
+        final List<String> imageUrls = await _uploadErrorImages();
         await DatabaseService().saveWorkoutResult(
           exerciseType: widget.exercise.type.name,
           repsCount: _session.counter,
@@ -867,6 +988,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           caloriesBurned: _session.caloriesBurned,
           incorrectPostures: _session.incorrectPostureCount,
           sourceTag: widget.sourceTag,
+          danhSachAnhSai: imageUrls.isNotEmpty ? imageUrls : null,
         );
       } catch (e) {
         debugPrint('Lỗi lưu kết quả: $e');
@@ -1087,6 +1209,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       );
 
       try {
+        final List<String> imageUrls = await _uploadErrorImages();
         await DatabaseService().saveWorkoutResult(
           exerciseType: widget.exercise.type.name,
           repsCount: _session.counter,
@@ -1094,6 +1217,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           caloriesBurned: _session.caloriesBurned,
           incorrectPostures: _session.incorrectPostureCount,
           sourceTag: widget.sourceTag,
+          danhSachAnhSai: imageUrls.isNotEmpty ? imageUrls : null,
         );
       } catch (e) {
         debugPrint('Lỗi lưu kết quả: $e');

@@ -382,6 +382,11 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                 }
               }
 
+              final List<dynamic>? errorImagesRaw = workout['danh_sach_anh_sai'] as List<dynamic>?;
+              final List<String> errorImages = errorImagesRaw != null
+                  ? errorImagesRaw.map((e) => e.toString()).toList()
+                  : [];
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(14),
@@ -392,80 +397,165 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                     color: Colors.white.withValues(alpha: 0.05),
                   ),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isCorrectOnly
-                            ? AppTheme.neonGreen.withValues(alpha: 0.1)
-                            : AppTheme.errorRed.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isCorrectOnly ? Icons.check : Icons.warning_amber_rounded,
-                        color: isCorrectOnly ? AppTheme.neonGreen : AppTheme.errorRed,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            exerciseName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.5,
-                            ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isCorrectOnly
+                                ? AppTheme.neonGreen.withValues(alpha: 0.1)
+                                : AppTheme.errorRed.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            formattedDate,
-                            style: const TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 11,
-                            ),
+                          child: Icon(
+                            isCorrectOnly ? Icons.check : Icons.warning_amber_rounded,
+                            color: isCorrectOnly ? AppTheme.neonGreen : AppTheme.errorRed,
+                            size: 20,
                           ),
-                          if (!isCorrectOnly) ...[
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                exerciseName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14.5,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formattedDate,
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              if (!isCorrectOnly) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Số lỗi sai tư thế: $incorrectPostures lần',
+                                  style: const TextStyle(
+                                    color: AppTheme.errorRed,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '+${calories.toStringAsFixed(1)} kcal',
+                              style: const TextStyle(
+                                color: Colors.orangeAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             Text(
-                              'Số lỗi sai tư thế: $incorrectPostures lần',
-                              style: const TextStyle(
-                                color: AppTheme.errorRed,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w500,
+                              rawExerciseName.toLowerCase().contains('plank')
+                                  ? '$duration giây'
+                                  : (reps > 0 ? '$reps lần' : '$duration giây'),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 11,
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '+${calories.toStringAsFixed(1)} kcal',
-                          style: const TextStyle(
-                            color: Colors.orangeAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          rawExerciseName.toLowerCase().contains('plank')
-                              ? '$duration giây'
-                              : (reps > 0 ? '$reps lần' : '$duration giây'),
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 11,
-                          ),
                         ),
                       ],
                     ),
+                    if (errorImages.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Divider(color: Colors.white12, height: 1),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Ảnh phân tích lỗi tư thế:',
+                        style: TextStyle(
+                          color: AppTheme.errorRed,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 150,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: errorImages.length,
+                          itemBuilder: (context, imgIdx) {
+                            return GestureDetector(
+                              onTap: () => _showFullScreenImage(context, errorImages[imgIdx]),
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 12),
+                                width: 200,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: AppTheme.errorRed.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(11),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Image.network(
+                                        errorImages[imgIdx],
+                                        fit: BoxFit.cover,
+                                        loadingBuilder: (context, child, progress) {
+                                          if (progress == null) return child;
+                                          return const Center(
+                                            child: CircularProgressIndicator(
+                                              color: AppTheme.errorRed,
+                                              strokeWidth: 2,
+                                            ),
+                                          );
+                                        },
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return const Center(
+                                            child: Icon(Icons.broken_image, color: Colors.white38),
+                                          );
+                                        },
+                                      ),
+                                      Positioned(
+                                        bottom: 0,
+                                        left: 0,
+                                        right: 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                                          color: Colors.black54,
+                                          child: const Text(
+                                            'Lỗi sai tư thế',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -707,6 +797,54 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
             style: const TextStyle(color: AppTheme.textSecondary),
           ),
         ],
+      ),
+    );
+  }
+
+  // Mở hộp thoại xem ảnh lỗi sai vẽ khung xương toàn màn hình kèm khả năng zoom nhúm ngón tay
+  void _showFullScreenImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: EdgeInsets.zero,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Center(
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return const Center(
+                      child: CircularProgressIndicator(color: AppTheme.neonGreen),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Center(
+                      child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
+                    );
+                  },
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.of(dialogCtx).padding.top + 16,
+              right: 16,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(dialogCtx),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

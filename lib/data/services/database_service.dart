@@ -26,6 +26,7 @@ class DatabaseService {
     required double caloriesBurned,
     required int incorrectPostures,
     String? sourceTag,
+    List<String>? danhSachAnhSai,
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) return;
@@ -43,6 +44,7 @@ class DatabaseService {
         'thoi_gian_tap': durationSeconds,
         'calo_tieu_hao': caloriesBurned,
         'so_lan_sai_tu_the': incorrectPostures,
+        'danh_sach_anh_sai': danhSachAnhSai,
       });
     } catch (e) {
       debugPrint('Lỗi đồng bộ lịch sử tập: $e');
@@ -141,7 +143,7 @@ class DatabaseService {
     try {
       final List<dynamic> data = await _client
           .from('lich_su_tap_luyen')
-          .select('exercise_id:ma_bai_tap_rieng, reps_count:so_lan_tap, duration_seconds:thoi_gian_tap, calories_burned:calo_tieu_hao, incorrect_postures:so_lan_sai_tu_the, created_at:ngay_tao')
+          .select('exercise_id:ma_bai_tap_rieng, reps_count:so_lan_tap, duration_seconds:thoi_gian_tap, calories_burned:calo_tieu_hao, incorrect_postures:so_lan_sai_tu_the, created_at:ngay_tao, danh_sach_anh_sai')
           .eq('ma_nguoi_dung', user.id)
           .order('ngay_tao', ascending: false)
           .limit(limit);
