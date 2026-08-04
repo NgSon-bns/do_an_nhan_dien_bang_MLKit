@@ -63,11 +63,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null) {
         setState(() {
-          _nameController.text = profile['full_name'] ?? '';
-          _weightController.text = (profile['weight'] ?? 0.0).toString();
-          _heightController.text = (profile['height'] ?? 0.0).toString();
-          _ageController.text = (profile['age'] ?? 0).toString();
-          _selectedGender = profile['gender'] ?? 'male';
+          _nameController.text = profile['ho_ten'] ?? '';
+          _weightController.text = (profile['can_nang'] ?? 0.0).toString();
+          _heightController.text = (profile['chieu_cao'] ?? 0.0).toString();
+          _ageController.text = (profile['tuoi'] ?? 0).toString();
+          _selectedGender = profile['gioi_tinh'] ?? 'male';
         });
       }
     } catch (e) {
@@ -140,12 +140,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _handleLogout() async {
     // Hiển thị dialog xác nhận đăng xuất
-    bool confirm = await showDialog(
+    bool confirm =
+        await showDialog(
           context: context,
           builder: (context) => AlertDialog(
             backgroundColor: AppTheme.cardBackground,
             title: const Text('Đăng Xuất'),
-            content: const Text('Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?'),
+            content: const Text(
+              'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -153,7 +156,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Đăng xuất', style: TextStyle(color: AppTheme.errorRed)),
+                child: const Text(
+                  'Đăng xuất',
+                  style: TextStyle(color: AppTheme.errorRed),
+                ),
               ),
             ],
           ),
@@ -180,7 +186,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trang Cá Nhân', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Trang Cá Nhân',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
@@ -189,7 +198,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.neonGreen))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppTheme.neonGreen),
+            )
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.all(24.0),
@@ -204,8 +215,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           CircleAvatar(
                             radius: 46,
-                            backgroundColor: AppTheme.neonGreen.withValues(alpha: 0.15),
-                            child: const Icon(Icons.person, size: 54, color: AppTheme.neonGreen),
+                            backgroundColor: AppTheme.neonGreen.withValues(
+                              alpha: 0.15,
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              size: 54,
+                              color: AppTheme.neonGreen,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Text(
@@ -240,7 +257,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _message!,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: _isSuccessMessage ? AppTheme.neonGreen : AppTheme.errorRed,
+                            color: _isSuccessMessage
+                                ? AppTheme.neonGreen
+                                : AppTheme.errorRed,
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                           ),
@@ -255,15 +274,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         labelText: 'Họ và tên',
-                        labelStyle: const TextStyle(color: AppTheme.textSecondary),
-                        prefixIcon: const Icon(Icons.person_outline, color: AppTheme.textSecondary),
+                        labelStyle: const TextStyle(
+                          color: AppTheme.textSecondary,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.person_outline,
+                          color: AppTheme.textSecondary,
+                        ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: const BorderSide(color: Colors.white12),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                          borderSide: const BorderSide(
+                            color: AppTheme.neonGreen,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                       validator: (value) {
@@ -282,24 +309,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _weightController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             style: const TextStyle(color: Colors.white),
                             decoration: InputDecoration(
                               labelText: 'Cân nặng (kg)',
-                              labelStyle: const TextStyle(color: AppTheme.textSecondary),
-                              prefixIcon: const Icon(Icons.monitor_weight_outlined, color: AppTheme.textSecondary),
+                              labelStyle: const TextStyle(
+                                color: AppTheme.textSecondary,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.monitor_weight_outlined,
+                                color: AppTheme.textSecondary,
+                              ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Colors.white12),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: AppTheme.neonGreen,
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty) return 'Bắt buộc';
-                              if (double.tryParse(value) == null) return 'Sai định dạng';
+                              if (value == null || value.isEmpty)
+                                return 'Bắt buộc';
+                              if (double.tryParse(value) == null)
+                                return 'Sai định dạng';
                               return null;
                             },
                           ),
@@ -309,24 +350,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _heightController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             style: const TextStyle(color: Colors.white),
                             decoration: InputDecoration(
                               labelText: 'Chiều cao (cm)',
-                              labelStyle: const TextStyle(color: AppTheme.textSecondary),
-                              prefixIcon: const Icon(Icons.height_outlined, color: AppTheme.textSecondary),
+                              labelStyle: const TextStyle(
+                                color: AppTheme.textSecondary,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.height_outlined,
+                                color: AppTheme.textSecondary,
+                              ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Colors.white12),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: AppTheme.neonGreen,
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty) return 'Bắt buộc';
-                              if (double.tryParse(value) == null) return 'Sai định dạng';
+                              if (value == null || value.isEmpty)
+                                return 'Bắt buộc';
+                              if (double.tryParse(value) == null)
+                                return 'Sai định dạng';
                               return null;
                             },
                           ),
@@ -342,15 +397,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         labelText: 'Tuổi',
-                        labelStyle: const TextStyle(color: AppTheme.textSecondary),
-                        prefixIcon: const Icon(Icons.cake_outlined, color: AppTheme.textSecondary),
+                        labelStyle: const TextStyle(
+                          color: AppTheme.textSecondary,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.cake_outlined,
+                          color: AppTheme.textSecondary,
+                        ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: const BorderSide(color: Colors.white12),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                          borderSide: const BorderSide(
+                            color: AppTheme.neonGreen,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                       validator: (value) {
@@ -371,25 +434,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                       decoration: InputDecoration(
                         labelText: 'Giới tính',
-                        labelStyle: const TextStyle(color: AppTheme.textSecondary),
-                        prefixIcon: const Icon(Icons.people_outline, color: AppTheme.textSecondary),
+                        labelStyle: const TextStyle(
+                          color: AppTheme.textSecondary,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.people_outline,
+                          color: AppTheme.textSecondary,
+                        ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: const BorderSide(color: Colors.white12),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppTheme.neonGreen, width: 1.5),
+                          borderSide: const BorderSide(
+                            color: AppTheme.neonGreen,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                       items: const [
                         DropdownMenuItem(
                           value: 'male',
-                          child: Text('Nam (Male)', style: TextStyle(color: Colors.white)),
+                          child: Text(
+                            'Nam ',
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'female',
-                          child: Text('Nữ (Female)', style: TextStyle(color: Colors.white)),
+                          child: Text(
+                            'Nữ ',
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ),
                       ],
                       onChanged: (val) {
@@ -409,9 +486,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ? const SizedBox(
                               height: 18,
                               width: 18,
-                              child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.0),
+                              child: CircularProgressIndicator(
+                                color: Colors.black,
+                                strokeWidth: 2.0,
+                              ),
                             )
-                          : const Icon(Icons.save_outlined, color: Colors.black),
+                          : const Icon(
+                              Icons.save_outlined,
+                              color: Colors.black,
+                            ),
                       label: const Text(
                         'LƯU THAY ĐỔI',
                         style: TextStyle(
@@ -422,7 +505,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.neonGreen,
-                        disabledBackgroundColor: AppTheme.neonGreen.withValues(alpha: 0.4),
+                        disabledBackgroundColor: AppTheme.neonGreen.withValues(
+                          alpha: 0.4,
+                        ),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -430,11 +515,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
-                    
+
                     // Tiêu đề lịch sử tập luyện
                     const Row(
                       children: [
-                        Icon(Icons.history, color: AppTheme.neonGreen, size: 20),
+                        Icon(
+                          Icons.history,
+                          color: AppTheme.neonGreen,
+                          size: 20,
+                        ),
                         SizedBox(width: 8),
                         Text(
                           'LỊCH SỬ HOẠT ĐỘNG GẦN ĐÂY',
@@ -453,179 +542,253 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ? const Center(
                             child: Padding(
                               padding: EdgeInsets.symmetric(vertical: 20),
-                              child: CircularProgressIndicator(color: AppTheme.neonGreen),
+                              child: CircularProgressIndicator(
+                                color: AppTheme.neonGreen,
+                              ),
                             ),
                           )
                         : _recentWorkouts.isEmpty
-                            ? Container(
-                                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                                decoration: AppTheme.glassDecoration(
-                                  color: Colors.white.withValues(alpha: 0.02),
-                                  borderRadius: 16,
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 24,
+                              horizontal: 16,
+                            ),
+                            decoration: AppTheme.glassDecoration(
+                              color: Colors.white.withValues(alpha: 0.02),
+                              borderRadius: 16,
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'Chưa có lịch sử hoạt động.\nHãy bắt đầu tập luyện để tích lũy kết quả!',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 13,
+                                  height: 1.4,
                                 ),
-                                child: const Center(
-                                  child: Text(
-                                    'Chưa có lịch sử hoạt động.\nHãy bắt đầu tập luyện để tích lũy kết quả!',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.4),
-                                  ),
-                                ),
-                              )
-                            : Column(
-                                children: _recentWorkouts.map((row) {
-                                  final String exerciseId = row['exercise_id'] as String? ?? '';
-                                  final parts = exerciseId.split('::');
-                                  final String type = parts.isNotEmpty ? parts[0] : '';
-                                  
-                                  // Dịch tên bài tập
-                                  String displayName = 'Hoạt động thể chất';
-                                  IconData displayIcon = Icons.fitness_center;
-                                  Color iconColor = AppTheme.neonGreen;
+                              ),
+                            ),
+                          )
+                        : Column(
+                            children: _recentWorkouts.map((row) {
+                              final String exerciseId =
+                                  row['exercise_id'] as String? ?? '';
+                              final parts = exerciseId.split('::');
+                              final String type = parts.isNotEmpty
+                                  ? parts[0]
+                                  : '';
 
-                                  if (type == 'check_in') {
-                                    displayName = 'Điểm danh hàng ngày';
-                                    displayIcon = Icons.today;
-                                    iconColor = Colors.orangeAccent;
-                                  } else if (type == 'pushUp') {
-                                    displayName = 'Chống đẩy (Push-up)';
-                                    displayIcon = Icons.fitness_center;
-                                  } else if (type == 'squat') {
-                                    displayName = 'Gánh đùi (Squat)';
-                                    displayIcon = Icons.accessibility_new;
-                                  } else if (type == 'plank') {
-                                    displayName = 'Tấm ván (Plank)';
-                                    displayIcon = Icons.timer;
-                                    iconColor = AppTheme.neonBlue;
-                                  } else if (type == 'burpee') {
-                                    displayName = 'Burpee liên hoàn';
-                                    displayIcon = Icons.directions_run;
-                                  } else if (type == 'walkingLunge ') {
-                                    displayName = 'Bước chùng chân (Walking Lunge)';
-                                    displayIcon = Icons.directions_walk;
-                                  } else if (type == 'jumpingJack') {
-                                    displayName = 'Nhảy vung tay (Jumping Jack)';
-                                    displayIcon = Icons.fitness_center;
-                                  }
+                              // Dịch tên bài tập
+                              String displayName = 'Hoạt động thể chất';
+                              IconData displayIcon = Icons.fitness_center;
+                              Color iconColor = AppTheme.neonGreen;
 
-                                  // Định dạng thời gian
-                                  String dateText = '';
-                                  try {
-                                    final String? createdAt = row['created_at'] as String?;
-                                    if (createdAt != null) {
-                                      final dt = DateTime.parse(createdAt).toLocal();
-                                      final day = dt.day.toString().padLeft(2, '0');
-                                      final month = dt.month.toString().padLeft(2, '0');
-                                      final year = dt.year;
-                                      final hour = dt.hour.toString().padLeft(2, '0');
-                                      final minute = dt.minute.toString().padLeft(2, '0');
-                                      dateText = '$day/$month/$year lúc $hour:$minute';
-                                    }
-                                  } catch (_) {
-                                    dateText = (row['created_at'] as String?)?.substring(0, 10) ?? '';
-                                  }
+                              if (type == 'check_in') {
+                                displayName = 'Điểm danh hàng ngày';
+                                displayIcon = Icons.today;
+                                iconColor = Colors.orangeAccent;
+                              } else if (type == 'pushUp') {
+                                displayName = 'Chống đẩy (Push-up)';
+                                displayIcon = Icons.fitness_center;
+                              } else if (type == 'squat') {
+                                displayName = 'Gánh đùi (Squat)';
+                                displayIcon = Icons.accessibility_new;
+                              } else if (type == 'plank') {
+                                displayName = 'Tấm ván (Plank)';
+                                displayIcon = Icons.timer;
+                                iconColor = AppTheme.neonBlue;
+                              } else if (type == 'burpee') {
+                                displayName = 'Burpee liên hoàn';
+                                displayIcon = Icons.directions_run;
+                              } else if (type == 'walkingLunge ') {
+                                displayName = 'Bước chùng chân (Walking Lunge)';
+                                displayIcon = Icons.directions_walk;
+                              } else if (type == 'jumpingJack') {
+                                displayName = 'Nhảy vung tay (Jumping Jack)';
+                                displayIcon = Icons.fitness_center;
+                              }
 
-                                  final int reps = row['reps_count'] as int? ?? 0;
-                                  final int secs = row['duration_seconds'] as int? ?? 0;
-                                  final double kcal = (row['calories_burned'] as num?)?.toDouble() ?? 0.0;
-                                  final int incorrect = row['incorrect_postures'] as int? ?? 0;
+                              // Định dạng thời gian
+                              String dateText = '';
+                              try {
+                                final String? createdAt =
+                                    row['created_at'] as String?;
+                                if (createdAt != null) {
+                                  final dt = DateTime.parse(
+                                    createdAt,
+                                  ).toLocal();
+                                  final day = dt.day.toString().padLeft(2, '0');
+                                  final month = dt.month.toString().padLeft(
+                                    2,
+                                    '0',
+                                  );
+                                  final year = dt.year;
+                                  final hour = dt.hour.toString().padLeft(
+                                    2,
+                                    '0',
+                                  );
+                                  final minute = dt.minute.toString().padLeft(
+                                    2,
+                                    '0',
+                                  );
+                                  dateText =
+                                      '$day/$month/$year lúc $hour:$minute';
+                                }
+                              } catch (_) {
+                                dateText =
+                                    (row['created_at'] as String?)?.substring(
+                                      0,
+                                      10,
+                                    ) ??
+                                    '';
+                              }
 
-                                  final bool isCheckIn = type == 'check_in';
-                                  
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: AppTheme.glassDecoration(
-                                      color: AppTheme.cardBackground.withValues(alpha: 0.3),
+                              final int reps = row['reps_count'] as int? ?? 0;
+                              final int secs =
+                                  row['duration_seconds'] as int? ?? 0;
+                              final double kcal =
+                                  (row['calories_burned'] as num?)
+                                      ?.toDouble() ??
+                                  0.0;
+                              final int incorrect =
+                                  row['incorrect_postures'] as int? ?? 0;
+
+                              final bool isCheckIn = type == 'check_in';
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(14),
+                                decoration:
+                                    AppTheme.glassDecoration(
+                                      color: AppTheme.cardBackground.withValues(
+                                        alpha: 0.3,
+                                      ),
                                       borderRadius: 16,
                                     ).copyWith(
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.04),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.04,
+                                        ),
                                         width: 1,
                                       ),
                                     ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: iconColor.withValues(alpha: 0.12),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Icon(displayIcon, color: iconColor, size: 20),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: iconColor.withValues(
+                                          alpha: 0.12,
                                         ),
-                                        const SizedBox(width: 14),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                displayName,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 13.5,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                isCheckIn
-                                                    ? 'Nhận +10 XP • $dateText'
-                                                    : '$reps reps • $secs giây • ${kcal.toStringAsFixed(1)} kcal',
-                                                style: TextStyle(
-                                                  color: Colors.white.withValues(alpha: 0.5),
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                              if (!isCheckIn) ...[
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  dateText,
-                                                  style: TextStyle(
-                                                    color: Colors.white.withValues(alpha: 0.3),
-                                                    fontSize: 9.5,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                        if (!isCheckIn) ...[
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: incorrect > 0
-                                                  ? AppTheme.errorRed.withValues(alpha: 0.1)
-                                                  : AppTheme.neonGreen.withValues(alpha: 0.1),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              incorrect > 0 ? 'Lỗi: $incorrect ⚠️' : 'Đạt chuẩn ✅',
-                                              style: TextStyle(
-                                                color: incorrect > 0 ? AppTheme.errorRed : AppTheme.neonGreen,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 10,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        displayIcon,
+                                        color: iconColor,
+                                        size: 20,
+                                      ),
                                     ),
-                                  );
-                                }).toList(),
-                              ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            displayName,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13.5,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            isCheckIn
+                                                ? 'Nhận +10 XP • $dateText'
+                                                : '$reps reps • $secs giây • ${kcal.toStringAsFixed(1)} kcal',
+                                            style: TextStyle(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                          if (!isCheckIn) ...[
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              dateText,
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.3,
+                                                ),
+                                                fontSize: 9.5,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    if (!isCheckIn) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: incorrect > 0
+                                              ? AppTheme.errorRed.withValues(
+                                                  alpha: 0.1,
+                                                )
+                                              : AppTheme.neonGreen.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          incorrect > 0
+                                              ? 'Lỗi: $incorrect ⚠️'
+                                              : 'Đạt chuẩn ✅',
+                                          style: TextStyle(
+                                            color: incorrect > 0
+                                                ? AppTheme.errorRed
+                                                : AppTheme.neonGreen,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
                     const SizedBox(height: 32),
 
                     // Nút Đăng xuất
                     OutlinedButton.icon(
                       onPressed: _handleLogout,
-                      icon: const Icon(Icons.logout, color: AppTheme.errorRed, size: 18),
+                      icon: const Icon(
+                        Icons.logout,
+                        color: AppTheme.errorRed,
+                        size: 18,
+                      ),
                       label: const Text(
                         'ĐĂNG XUẤT TÀI KHOẢN',
-                        style: TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: AppTheme.errorRed,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: AppTheme.errorRed, width: 1.2),
+                        side: const BorderSide(
+                          color: AppTheme.errorRed,
+                          width: 1.2,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),

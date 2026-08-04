@@ -182,21 +182,23 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null && mounted) {
         setState(() {
-          _userName = profile['full_name'] ?? 'Trainer';
+          _userName = profile['ho_ten'] ?? 'Trainer';
         });
 
         // Kiểm tra xem người dùng đã cập nhật đầy đủ chiều cao, cân nặng, độ tuổi chưa
-        final double weight = (profile['weight'] as num?)?.toDouble() ?? 0.0;
-        final double height = (profile['height'] as num?)?.toDouble() ?? 0.0;
-        final int age = (profile['age'] as num?)?.toInt() ?? 0;
-
-        if (weight == 0.0 || height == 0.0 || age == 0) {
+        final double weight = (profile['can_nang'] as num?)?.toDouble() ?? 0.0;
+        final double height = (profile['chieu_cao'] as num?)?.toDouble() ?? 0.0;
+        final int age = (profile['tuoi'] as num?)?.toInt() ?? 0;
+        final String gender = ((profile['gioi_tinh'] as String?) ?? '').trim().toLowerCase();
+        final String normalizedGender = gender == 'female' ? 'female' : 'male';
+        if (weight == 0.0 || height == 0.0 || age == 0 || gender.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _showPhysicalSurveyDialog(
-              currentName: profile['full_name'] ?? '',
+              currentName: profile['ho_ten'] ?? '',
               currentWeight: weight,
               currentHeight: height,
               currentAge: age,
+              currentGender: normalizedGender,
             );
           });
         }
@@ -240,35 +242,50 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
           // Lấy mảng danh sách từ database hoặc dự phòng cục bộ
           final List<String> listInstructions = [];
           if (row['huong_dan_tap'] is List) {
-            listInstructions.addAll((row['huong_dan_tap'] as List).map((e) => e.toString()));
+            listInstructions.addAll(
+              (row['huong_dan_tap'] as List).map((e) => e.toString()),
+            );
           } else {
             listInstructions.addAll(localEx.instructions);
           }
 
           final List<String> listBenefits = [];
           if (row['loi_ich'] is List) {
-            listBenefits.addAll((row['loi_ich'] as List).map((e) => e.toString()));
+            listBenefits.addAll(
+              (row['loi_ich'] as List).map((e) => e.toString()),
+            );
           } else {
             listBenefits.addAll(localEx.benefits);
           }
 
-          updatedList.add(ExerciseDetail(
-            type: localEx.type,
-            name: (row['ten_bai_tap'] as String?) ?? localEx.name,
-            description: (row['mo_ta'] as String?) ?? localEx.description,
-            icon: localEx.icon,
-            instructions: listInstructions,
-            isDurationBased: (row['tinh_theo_thoi_gian'] as bool?) ?? localEx.isDurationBased,
-            targetValue: (row['muc_tieu_so_lan'] as num?)?.toInt() ?? localEx.targetValue,
-            difficulty: (row['do_kho'] as String?) ?? localEx.difficulty,
-            caloriesPerMin: (row['calo_moi_phut'] as num?)?.toDouble() ?? localEx.caloriesPerMin,
-            category: (row['nhom_bai_tap'] as String?) ?? localEx.category,
-            focusArea: (row['vung_co_tac_dong'] as String?) ?? localEx.focusArea,
-            equipment: (row['dung_cu'] as String?) ?? localEx.equipment,
-            isAiEnabled: (row['ho_tro_ai'] as bool?) ?? localEx.isAiEnabled,
-            estimatedDurationSeconds: (row['thoi_gian_uoc_tinh_giay'] as num?)?.toInt() ?? localEx.estimatedDurationSeconds,
-            benefits: listBenefits,
-          ));
+          updatedList.add(
+            ExerciseDetail(
+              type: localEx.type,
+              name: (row['ten_bai_tap'] as String?) ?? localEx.name,
+              description: (row['mo_ta'] as String?) ?? localEx.description,
+              icon: localEx.icon,
+              instructions: listInstructions,
+              isDurationBased:
+                  (row['tinh_theo_thoi_gian'] as bool?) ??
+                  localEx.isDurationBased,
+              targetValue:
+                  (row['muc_tieu_so_lan'] as num?)?.toInt() ??
+                  localEx.targetValue,
+              difficulty: (row['do_kho'] as String?) ?? localEx.difficulty,
+              caloriesPerMin:
+                  (row['calo_moi_phut'] as num?)?.toDouble() ??
+                  localEx.caloriesPerMin,
+              category: (row['nhom_bai_tap'] as String?) ?? localEx.category,
+              focusArea:
+                  (row['vung_co_tac_dong'] as String?) ?? localEx.focusArea,
+              equipment: (row['dung_cu'] as String?) ?? localEx.equipment,
+              isAiEnabled: (row['ho_tro_ai'] as bool?) ?? localEx.isAiEnabled,
+              estimatedDurationSeconds:
+                  (row['thoi_gian_uoc_tinh_giay'] as num?)?.toInt() ??
+                  localEx.estimatedDurationSeconds,
+              benefits: listBenefits,
+            ),
+          );
         }
 
         setState(() {
@@ -282,10 +299,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
   String _mapIdToTypeName(String id) {
     switch (id) {
-      case 'push_up': return 'pushUp';
-      case 'walking_lunge': return 'walkingLunge';
-      case 'jumping_jack': return 'jumpingJack';
-      default: return id;
+      case 'push_up':
+        return 'pushUp';
+      case 'walking_lunge':
+        return 'walkingLunge';
+      case 'jumping_jack':
+        return 'jumpingJack';
+      default:
+        return id;
     }
   }
 
@@ -294,6 +315,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     required double currentWeight,
     required double currentHeight,
     required int currentAge,
+    required String currentGender ,
   }) {
     final formKey = GlobalKey<FormState>();
     final weightController = TextEditingController(
@@ -305,6 +327,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     final ageController = TextEditingController(
       text: currentAge > 0 ? currentAge.toString() : '',
     );
+    
+    String selectedGender = currentGender.trim().toLowerCase() == 'female'
+        ? 'female'
+        : 'male';
     bool isSavingLocal = false;
 
     showDialog(
@@ -436,6 +462,68 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         ),
                         const SizedBox(height: 16),
 
+                        DropdownButtonFormField<String>(
+                          value: selectedGender,
+                          dropdownColor: AppTheme.cardBackground,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Giới tính',
+                            labelStyle: const TextStyle(
+                              color: AppTheme.textSecondary,
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.people_outline,
+                              color: AppTheme.neonGreen,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                color: Colors.white12,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                color: AppTheme.neonGreen,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'male',
+                              child: Text(
+                                'Nam',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'female',
+                              child: Text(
+                                'Nữ',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Vui lòng chọn giới tính';
+                            }
+                            return null;
+                          },
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() {
+                                selectedGender = val;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
                         // Tuổi
                         TextFormField(
                           controller: ageController,
@@ -504,6 +592,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   weight: weight,
                                   height: height,
                                   age: age,
+                                  gender: selectedGender,
                                 );
 
                                 if (context.mounted) {
@@ -1007,21 +1096,24 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           horizontal: 16,
                           vertical: 14,
                         ),
-                        decoration: AppTheme.glassDecoration(
-                          color: AppTheme.neonBlue.withValues(alpha: 0.1),
-                          borderRadius: 20,
-                        ).copyWith(
-                          border: Border.all(
-                            color: AppTheme.neonBlue.withValues(alpha: 0.2),
-                            width: 1,
-                          ),
-                        ),
+                        decoration:
+                            AppTheme.glassDecoration(
+                              color: AppTheme.neonBlue.withValues(alpha: 0.1),
+                              borderRadius: 20,
+                            ).copyWith(
+                              border: Border.all(
+                                color: AppTheme.neonBlue.withValues(alpha: 0.2),
+                                width: 1,
+                              ),
+                            ),
                         child: Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: AppTheme.neonBlue.withValues(alpha: 0.15),
+                                color: AppTheme.neonBlue.withValues(
+                                  alpha: 0.15,
+                                ),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -1047,7 +1139,9 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                   Text(
                                     'Xem tiến trình bài tập hoàn chỉnh, tập lỗi và chuỗi điểm danh.',
                                     style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.6),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.6,
+                                      ),
                                       fontSize: 10.5,
                                     ),
                                   ),
@@ -1158,13 +1252,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 if (draft == null) return;
                                 final exerciseTypeName =
                                     draft['exerciseType'] as String?;
-                                final exercise = _exercisesList
-                                    .firstWhere(
-                                      (item) =>
-                                          item.type.name == exerciseTypeName,
-                                      orElse: () =>
-                                          _exercisesList.first,
-                                    );
+                                final exercise = _exercisesList.firstWhere(
+                                  (item) => item.type.name == exerciseTypeName,
+                                  orElse: () => _exercisesList.first,
+                                );
                                 await Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -1239,8 +1330,8 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     IconData icon,
     String label,
     String value,
-    Color color,{
-    VoidCallback? onTap, 
+    Color color, {
+    VoidCallback? onTap,
   }) {
     return GestureDetector(
       onTap: onTap,

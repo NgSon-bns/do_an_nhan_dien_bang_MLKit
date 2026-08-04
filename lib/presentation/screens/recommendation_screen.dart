@@ -227,18 +227,18 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null && mounted) {
         setState(() {
-          _userName = profile['full_name'] ?? 'Trainer';
-          _weight = (profile['weight'] as num?)?.toDouble() ?? 0.0;
-          _height = (profile['height'] as num?)?.toDouble() ?? 0.0;
-          _age = (profile['age'] as num?)?.toInt() ?? 0;
-          _gender = profile['gender'] ?? 'male';
+          _userName = profile['ho_ten'] ?? 'Trainer';
+          _weight = (profile['can_nang'] as num?)?.toDouble() ?? 0.0;
+          _height = (profile['chieu_cao'] as num?)?.toDouble() ?? 0.0;
+          _age = (profile['tuoi'] as num?)?.toInt() ?? 0;
+          _gender = profile['gioi_tinh'] ?? 'male';
 
           if (_weight == 0.0) _weight = 65.0;
           if (_height == 0.0) _height = 170.0;
           if (_age == 0) _age = 25;
 
           // Đọc mục tiêu tập luyện từ database nếu có lưu trước đó
-          final String? dbGoal = profile['goal'] ?? profile['fitness_goal'];
+          final String? dbGoal = profile['muc_tieu'] ?? profile['fitness_goal'];
           double bmi = _weight / ((_height / 100) * (_height / 100));
 
           if (bmi >= 25.0) {
