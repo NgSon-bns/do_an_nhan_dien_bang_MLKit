@@ -11,17 +11,17 @@ class EvaluatorFactory {
   /// Hàm Factory khởi tạo đối tượng phân tích phù hợp với từng bài tập
   static BasePoseEvaluator create(ExerciseType type) {
     switch (type) {
-      case ExerciseType.pushUp:
+      case ExerciseType.push_up:
         return PushUpEvaluator();
       case ExerciseType.squat:
         return SquatEvaluator();
       case ExerciseType.plank:
         return PlankEvaluator();
-      case ExerciseType.jumpingJack:
+      case ExerciseType.jumping_jack:
         return JumpingJackEvaluator();
       case ExerciseType.burpee:
         return BurpeeEvaluator();
-      case ExerciseType.walkingLunge:
+      case ExerciseType.walking_lunge:
         return WalkingLungeEvaluator();
     }
   }

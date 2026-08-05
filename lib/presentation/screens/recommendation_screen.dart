@@ -23,6 +23,7 @@ class RecommendationScreen extends StatefulWidget {
 
 class _RecommendationScreenState extends State<RecommendationScreen> {
   final AuthService _authService = AuthService();
+  SupabaseClient get _client => Supabase.instance.client;
   final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
   Map<String, dynamic>? _todayDraftWorkout;
   double _weight = 0.0;
@@ -31,9 +32,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   String _gender = 'male';
   String _userName = '';
   bool _isLoading = true;
-  String _selectedGoal = 'maintain'; // 'lose', 'maintain', 'build'
-  int _selectedDayIndex = 7; // Chọn ngày trong lịch trình (0 - 20)
-  int _selectedWeekIndex = 1; // 0 = Tuần trước, 1 = Tuần này, 2 = Tuần sau
+  String _selectedGoal = 'maintain';
+  int _selectedDayIndex = 7;
+  int _selectedWeekIndex = 1;
   final Map<ExerciseType, bool> _noSplitTargets = {};
   final Map<ExerciseType, int> _selectedTargets = {};
   final Map<ExerciseType, bool> _expandedTargetSelectors = {};
@@ -41,24 +42,316 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   List<Map<String, dynamic>> _todayMealLogs = [];
   List<String> _heavyExercises = [];
 
+  // Mảng lưu lịch trình 21 ngày đồng bộ từ Database
+  List<Map<String, dynamic>> _savedSchedule = [];
+  bool _showExerciseGroups = false; // Ẩn/Hiện chọn nhóm bài tập
+
+  final Set<ExerciseType> _customSelectedExercises = {};
+  bool _isCustomSelectionActive = false;
+
+  static const Map<String, List<ExerciseType>> _exerciseGroups = {
+    'Thân trên': [ExerciseType.push_up, ExerciseType.plank],
+    'Thân dưới': [ExerciseType.squat, ExerciseType.walking_lunge],
+    'Toàn thân': [ExerciseType.jumping_jack, ExerciseType.burpee],
+  };
+
+  static const Map<String, String> _groupReasons = {
+    'Thân trên': 'Push-Up tăng cơ ngực và vai, Plank củng cố core bụng lưng.',
+    'Thân dưới':
+        'Squat và Walking Lunge phát triển cơ đùi mông và cải thiện cân bằng.',
+    'Toàn thân': 'Jumping Jack và Burpee đốt calo toàn thân, tăng nhịp tim.',
+  };
+
   @override
   void initState() {
     super.initState();
     _selectedWeekIndex = 1;
     _selectedDayIndex = 7 + (DateTime.now().weekday - 1);
-    _loadUserProfile();
-    _loadHeavyExercises();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
+    await _loadHeavyExercises();
+    await _loadAndSyncSchedule();
 
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
     _loadMealLogsForDay(selectedDate);
     _refreshTodayDraftWorkout();
+
+    final yesterday = selectedDate.subtract(const Duration(days: 1));
+    _loadCompletedExercisesForDay(yesterday);
+  }
+
+  // Chuyển đổi qua lại giữa Enum và String để lưu Database/Prefs
+  List<dynamic> _encodeSchedule(List<Map<String, dynamic>> sched) {
+    return sched.map((day) {
+      final dayCopy = Map<String, dynamic>.from(day);
+      if (dayCopy['exercises'] != null) {
+        dayCopy['exercises'] = (dayCopy['exercises'] as List).map((ex) {
+          final exMap = Map<String, dynamic>.from(ex as Map);
+          if (exMap['type'] is ExerciseType) {
+            exMap['type'] = (exMap['type'] as ExerciseType).name;
+          }
+          return exMap;
+        }).toList();
+      }
+      return dayCopy;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _decodeSchedule(List<dynamic> raw) {
+    return raw.map((day) {
+      final dayCopy = Map<String, dynamic>.from(day as Map);
+      if (dayCopy['exercises'] != null) {
+        dayCopy['exercises'] = (dayCopy['exercises'] as List).map((ex) {
+          final exMap = Map<String, dynamic>.from(ex as Map);
+          if (exMap['type'] is String) {
+            exMap['type'] =
+                _exerciseTypeFromName(exMap['type'] as String) ??
+                ExerciseType.jumping_jack;
+          }
+          return exMap;
+        }).toList();
+      }
+      return dayCopy;
+    }).toList();
+  }
+
+  // Đồng bộ và Tải lịch trình
+  Future<void> _loadAndSyncSchedule() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final localKey = 'saved_schedule_${user?.id ?? 'guest'}';
+
+    List<Map<String, dynamic>> tempSchedule = [];
+    bool hasLocal = false;
+
+    // 1. Đọc từ Local Offline trước
+    final localData = prefs.getString(localKey);
+    if (localData != null && localData.isNotEmpty) {
+      try {
+        tempSchedule = _decodeSchedule(jsonDecode(localData));
+        hasLocal = true;
+      } catch (e) {
+        debugPrint('Lỗi đọc lịch trình Local: $e');
+      }
+    }
+
+    // 2. Fetch từ Supabase (nếu online) và merge
+    if (_isSupabaseInitialized && user?.id != 'guest') {
+      try {
+        final client = Supabase.instance.client;
+        final response = await client
+            .from('lich_trinh_de_xuat')
+            .select('du_lieu_lich_trinh')
+            .eq('ma_nguoi_dung', user!.id)
+            .maybeSingle();
+
+        if (response != null && response['du_lieu_lich_trinh'] != null) {
+          tempSchedule = _decodeSchedule(
+            response['du_lieu_lich_trinh'] as List<dynamic>,
+          );
+          hasLocal = true;
+          // Cập nhật lại cache local
+          await prefs.setString(
+            localKey,
+            jsonEncode(_encodeSchedule(tempSchedule)),
+          );
+        } else if (hasLocal) {
+          // Có local nhưng chưa có DB -> đẩy lên DB
+          await _syncScheduleToDb(tempSchedule);
+        }
+      } catch (e) {
+        debugPrint('Lỗi tải lịch trình DB (Offline mode): $e');
+      }
+    }
+
+    // 3. Nếu không có ở đâu cả, tạo mới hoàn toàn
+    if (!hasLocal || tempSchedule.isEmpty) {
+      double bmi = _height > 0
+          ? _weight / ((_height / 100) * (_height / 100))
+          : 0.0;
+      final rawSchedule = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
+      tempSchedule = _postProcessAdaptiveSchedule(rawSchedule);
+      await _saveScheduleLocallyAndDb(tempSchedule);
+    }
+
+    if (mounted) {
+      setState(() {
+        _savedSchedule = tempSchedule;
+      });
+    }
+  }
+
+  // Lưu lịch trình lên Local và DB
+  Future<void> _saveScheduleLocallyAndDb(
+    List<Map<String, dynamic>> sched,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = _isSupabaseInitialized
+        ? Supabase.instance.client.auth.currentUser?.id
+        : 'guest';
+    final localKey = 'saved_schedule_$userId';
+
+    await prefs.setString(localKey, jsonEncode(_encodeSchedule(sched)));
+
+    if (mounted) {
+      setState(() {
+        _savedSchedule = sched;
+      });
+    }
+
+    await _syncScheduleToDb(sched);
+  }
+
+  // Đẩy lịch trình lên DB (chạy nền)
+  Future<void> _syncScheduleToDb(List<Map<String, dynamic>> sched) async {
+    if (!_isSupabaseInitialized) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      await Supabase.instance.client.from('lich_trinh_de_xuat').upsert({
+        'ma_nguoi_dung': userId,
+        'ngay_cap_nhat': DateTime.now().toIso8601String(),
+        'du_lieu_lich_trinh': _encodeSchedule(sched),
+      }, onConflict: 'ma_nguoi_dung');
+    } catch (e) {
+      debugPrint('Mất mạng, chưa đồng bộ lên Database được: $e');
+    }
+  }
+
+  // Trigger cập nhật lịch trình từ HÔM NAY đổ đi (khi đổi mục tiêu/chỉ số)
+  Future<void> _triggerScheduleUpdateFromToday(double currentBmi) async {
+    if (_savedSchedule.isEmpty) return;
+
+    final newRaw = _generateAdaptiveSchedule(_selectedGoal, currentBmi, _age);
+    final newAdaptive = _postProcessAdaptiveSchedule(newRaw);
+
+    final int todayIndex = DateTime.now().weekday - 1;
+    final int safeTodayIndex = 7 + todayIndex;
+
+    // Giữ nguyên từ 0 -> safeTodayIndex - 1. Ghi đè từ safeTodayIndex -> 20.
+    List<Map<String, dynamic>> mergedSchedule = List.from(_savedSchedule);
+    for (int i = safeTodayIndex; i < mergedSchedule.length; i++) {
+      // Đảm bảo bài tập của ngày hôm nay/ngày mai không trùng lặp liên tiếp
+      if (i > 0) {
+        mergedSchedule[i] = _ensureNoConsecutiveDuplicate(
+          newAdaptive[i],
+          mergedSchedule[i - 1],
+        );
+      } else {
+        mergedSchedule[i] = newAdaptive[i];
+      }
+    }
+
+    await _saveScheduleLocallyAndDb(mergedSchedule);
+  }
+
+  // Helper đảm bảo ngày hôm sau không trùng bài tập với ngày hôm trước
+  Map<String, dynamic> _ensureNoConsecutiveDuplicate(
+    Map<String, dynamic> currentDay,
+    Map<String, dynamic> previousDay,
+  ) {
+    if (currentDay['isRest'] == true || previousDay['isRest'] == true) {
+      return currentDay;
+    }
+
+    final prevExercises =
+        (previousDay['exercises'] as List?)
+            ?.map((e) => e['type'] as ExerciseType)
+            .toSet() ??
+        {};
+
+    final currExercises = (currentDay['exercises'] as List?) ?? [];
+    List<Map<String, dynamic>> filteredExercises = [];
+
+    for (var ex in currExercises) {
+      final ExerciseType type = ex['type'] as ExerciseType;
+      // Nếu bài tập trùng với ngày hôm trước, tự động đổi sang bài thay thế an toàn
+      if (prevExercises.contains(type)) {
+        final alternativeType = _getAlternativeExercise(type);
+        filteredExercises.add({
+          'type': alternativeType,
+          'reason': 'Đổi bài để tránh trùng lặp liên tiếp với ngày hôm trước.',
+        });
+      } else {
+        filteredExercises.add(Map<String, dynamic>.from(ex));
+      }
+    }
+
+    final updatedDay = Map<String, dynamic>.from(currentDay);
+    updatedDay['exercises'] = filteredExercises;
+    return updatedDay;
+  }
+
+  ExerciseType _getAlternativeExercise(ExerciseType type) {
+    switch (type) {
+      case ExerciseType.burpee:
+        return ExerciseType.jumping_jack;
+      case ExerciseType.push_up:
+        return ExerciseType.plank;
+      case ExerciseType.walking_lunge:
+        return ExerciseType.squat;
+      case ExerciseType.squat:
+        return ExerciseType.walking_lunge;
+      case ExerciseType.jumping_jack:
+        return ExerciseType.burpee;
+      case ExerciseType.plank:
+        return ExerciseType.push_up;
+    }
+  }
+
+  String _heavyExercisesPrefsKey() {
+    final userId = _isSupabaseInitialized
+        ? Supabase.instance.client.auth.currentUser?.id
+        : null;
+    return 'heavy_exercises_${userId ?? 'guest'}';
   }
 
   Future<void> _loadHeavyExercises() async {
+    if (!_isSupabaseInitialized) {
+      await _loadHeavyExercisesFromPrefs();
+      return;
+    }
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId == null) {
+        await _loadHeavyExercisesFromPrefs();
+        return;
+      }
+      final row = await client
+          .from('ho_so_nguoi_dung')
+          .select('bai_tap_qua_nang')
+          .eq('ma_nguoi_dung', userId)
+          .maybeSingle();
+
+      final list =
+          (row?['bai_tap_qua_nang'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
+
+      if (mounted) {
+        setState(() {
+          _heavyExercises = list;
+        });
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_heavyExercisesPrefsKey(), list);
+    } catch (e) {
+      debugPrint('Lỗi tải bài tập quá nặng từ CSDL: $e');
+      await _loadHeavyExercisesFromPrefs();
+    }
+  }
+
+  Future<void> _loadHeavyExercisesFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final list = prefs.getStringList('heavy_exercises') ?? [];
+      final list = prefs.getStringList(_heavyExercisesPrefsKey()) ?? [];
       if (mounted) {
         setState(() {
           _heavyExercises = list;
@@ -69,63 +362,446 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
+  Future<void> _removeHeavyExercise(ExerciseType type) async {
+    final updated = List<String>.from(_heavyExercises)..remove(type.name);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_heavyExercisesPrefsKey(), updated);
+
+      if (mounted) {
+        setState(() {
+          _heavyExercises = updated;
+        });
+      }
+
+      if (_isSupabaseInitialized) {
+        final client = Supabase.instance.client;
+        final userId = client.auth.currentUser?.id;
+        if (userId != null) {
+          await client
+              .from('ho_so_nguoi_dung')
+              .update({'bai_tap_qua_nang': updated})
+              .eq('ma_nguoi_dung', userId);
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Đã bỏ chặn bài tập này'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Lỗi xóa bài tập quá nặng: $e');
+    }
+  }
+
+  bool _isExerciseBlocked(ExerciseType type, double bmi, int age) {
+    if (type == ExerciseType.burpee && (bmi >= 25.0 || age >= 45)) return true;
+    if (_heavyExercises.contains(type.name)) return true;
+    return false;
+  }
+
+  String _getBlockedReason(ExerciseType type, double bmi, int age) {
+    if (type == ExerciseType.burpee) {
+      if (bmi >= 25.0) {
+        return '⚠️ Bị chặn: Thừa cân (BMI ≥ 25), Burpee gây áp lực lớn lên khớp gối';
+      }
+      if (age >= 45) {
+        return '⚠️ Bị chặn: Cao tuổi (≥ 45), Burpee cường độ cao có thể gây ngã nguy hiểm';
+      }
+    }
+    if (_heavyExercises.contains(type.name)) {
+      return '⚠️ Bị chặn: AI phát hiện bài này quá nặng với bạn';
+    }
+    return '';
+  }
+
+  bool _isExerciseDoneOnDate(ExerciseType type, DateTime day) {
+    final dayKey = _getDayKey(day);
+    final completedKeys =
+        _completedExerciseKeysByDay[dayKey] ?? const <String>{};
+    return completedKeys.any((key) {
+      final keyType = _exerciseTypeFromName(key);
+      return keyType == type;
+    });
+  }
+
+  bool _isExerciseSelectableForDay(
+    ExerciseType type,
+    DateTime selectedDayDate,
+    double bmi,
+    int age,
+  ) {
+    final previousDay = selectedDayDate.subtract(const Duration(days: 1));
+    return !_isExerciseBlocked(type, bmi, age) &&
+        !_isExerciseDoneOnDate(type, previousDay);
+  }
+
+  void _toggleExerciseGroup(
+    String groupName,
+    double bmi,
+    int age,
+    DateTime selectedDayDate,
+  ) async {
+    final exercises = _exerciseGroups[groupName] ?? [];
+    final validExercises = exercises
+        .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
+        .toList();
+
+    if (validExercises.isEmpty) return;
+
+    setState(() {
+      _isCustomSelectionActive = true;
+      final allSelected = validExercises.every(
+        (e) => _customSelectedExercises.contains(e),
+      );
+      if (allSelected) {
+        for (final e in validExercises) {
+          _customSelectedExercises.remove(e);
+        }
+        if (_customSelectedExercises.isEmpty) {
+          _isCustomSelectionActive = false;
+        }
+      } else {
+        for (final e in validExercises) {
+          _customSelectedExercises.add(e);
+        }
+      }
+    });
+
+    if (_savedSchedule.isNotEmpty) {
+      final int todayIndex = DateTime.now().weekday - 1;
+      final int safeTodayIndex = 7 + todayIndex;
+
+      final scientificTargets = _calculateScientificReps(
+        _weight,
+        _height,
+        _age,
+        _selectedGoal,
+        _gender,
+      );
+      final customList = _buildCustomExerciseList(scientificTargets);
+
+      List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+      updatedSchedule[safeTodayIndex]['exercises'] = customList;
+      updatedSchedule[safeTodayIndex]['isRest'] = false;
+
+      await _saveScheduleLocallyAndDb(updatedSchedule);
+    }
+  }
+
+  List<Map<String, dynamic>> _buildCustomExerciseList(
+    Map<ExerciseType, int> scientificTargets,
+  ) {
+    return _customSelectedExercises.map((type) {
+      final ex = ExerciseDetail.defaultExercises.firstWhere(
+        (e) => e.type == type,
+      );
+      String groupName = '';
+      for (final entry in _exerciseGroups.entries) {
+        if (entry.value.contains(type)) {
+          groupName = entry.key;
+          break;
+        }
+      }
+      return {
+        'type': type,
+        'reason': '${ex.name} - ${_groupReasons[groupName] ?? ''}',
+      };
+    }).toList();
+  }
+
+  Widget _buildExerciseGroupSelector(
+    double bmi,
+    int age,
+    DateTime selectedDayDate,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _showExerciseGroups = !_showExerciseGroups;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            color: Colors.transparent,
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.touch_app,
+                  color: AppTheme.neonGreen,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'CHỌN NHÓM BÀI TẬP (ẨN/HIỆN)',
+                    style: TextStyle(
+                      color: AppTheme.neonGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                Icon(
+                  _showExerciseGroups
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  color: AppTheme.neonGreen,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_showExerciseGroups) ...[
+          const SizedBox(height: 8),
+          ..._exerciseGroups.entries.map((entry) {
+            final groupName = entry.key;
+            final exercises = entry.value;
+            final availableExercises = exercises
+                .where(
+                  (e) =>
+                      _isExerciseSelectableForDay(e, selectedDayDate, bmi, age),
+                )
+                .toList();
+            final blockedExercises = exercises
+                .where((e) => _isExerciseBlocked(e, bmi, age))
+                .toList();
+            final repeatedExercises = exercises
+                .where(
+                  (e) => _isExerciseDoneOnDate(
+                    e,
+                    selectedDayDate.subtract(const Duration(days: 1)),
+                  ),
+                )
+                .toList();
+            final allSelected = availableExercises.every(
+              (e) => _customSelectedExercises.contains(e),
+            );
+            final hasWarnings =
+                blockedExercises.isNotEmpty || repeatedExercises.isNotEmpty;
+
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: hasWarnings
+                    ? Colors.red.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: hasWarnings
+                      ? AppTheme.errorRed.withValues(alpha: 0.35)
+                      : Colors.white10,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              groupName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _groupReasons[groupName] ?? '',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 11.5,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: availableExercises.isEmpty
+                            ? null
+                            : () => _toggleExerciseGroup(
+                                groupName,
+                                bmi,
+                                age,
+                                selectedDayDate,
+                              ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: allSelected
+                              ? AppTheme.neonGreen
+                              : AppTheme.neonBlue,
+                        ),
+                        child: Text(
+                          allSelected ? 'BỎ CHỌN' : 'CHỌN NHÓM',
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: exercises.map((exerciseType) {
+                      final isBlocked = _isExerciseBlocked(
+                        exerciseType,
+                        bmi,
+                        age,
+                      );
+                      final isRepeated = _isExerciseDoneOnDate(
+                        exerciseType,
+                        selectedDayDate.subtract(const Duration(days: 1)),
+                      );
+                      final isSelectable = !isBlocked && !isRepeated;
+                      final isSelected = _customSelectedExercises.contains(
+                        exerciseType,
+                      );
+                      final exerciseLabel = ExerciseDetail.defaultExercises
+                          .firstWhere((e) => e.type == exerciseType)
+                          .name;
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isBlocked
+                              ? AppTheme.errorRed.withValues(alpha: 0.12)
+                              : isSelected
+                              ? AppTheme.neonGreen.withValues(alpha: 0.12)
+                              : Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isBlocked
+                                ? AppTheme.errorRed.withValues(alpha: 0.45)
+                                : isSelected
+                                ? AppTheme.neonGreen.withValues(alpha: 0.45)
+                                : Colors.white10,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              exerciseLabel,
+                              style: TextStyle(
+                                color: isBlocked
+                                    ? AppTheme.errorRed
+                                    : Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isBlocked
+                                  ? _getBlockedReason(exerciseType, bmi, age)
+                                  : isRepeated
+                                  ? 'Đã tập hôm trước'
+                                  : isSelectable
+                                  ? 'Có thể chọn'
+                                  : 'Không khả dụng',
+                              style: TextStyle(
+                                color: isBlocked
+                                    ? AppTheme.errorRed
+                                    : Colors.white70,
+                                fontSize: 10.5,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ],
+    );
+  }
+
   ExerciseType _getAdaptedExerciseType(ExerciseType type) {
     ExerciseType current = type;
     while (_heavyExercises.contains(current.name)) {
       if (current == ExerciseType.burpee) {
-        current = ExerciseType.jumpingJack;
-      } else if (current == ExerciseType.pushUp) {
+        current = ExerciseType.jumping_jack;
+      } else if (current == ExerciseType.push_up) {
         current = ExerciseType.plank;
-      } else if (current == ExerciseType.walkingLunge) {
+      } else if (current == ExerciseType.walking_lunge) {
         current = ExerciseType.squat;
       } else if (current == ExerciseType.squat) {
-        current = ExerciseType.jumpingJack;
-      } else if (current == ExerciseType.jumpingJack) {
+        current = ExerciseType.jumping_jack;
+      } else if (current == ExerciseType.jumping_jack) {
         current = ExerciseType.plank;
       } else {
-        break; 
+        break;
       }
     }
     return current;
   }
 
-  String _getAdaptedReason(ExerciseType originalType, ExerciseType adaptedType, String originalReason) {
+  String _getAdaptedReason(
+    ExerciseType originalType,
+    ExerciseType adaptedType,
+    String originalReason,
+  ) {
     if (originalType == adaptedType) return originalReason;
-    final adaptedEx = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == adaptedType);
-    final originalEx = ExerciseDetail.defaultExercises.firstWhere((e) => e.type == originalType);
+    final adaptedEx = ExerciseDetail.defaultExercises.firstWhere(
+      (e) => e.type == adaptedType,
+    );
+    final originalEx = ExerciseDetail.defaultExercises.firstWhere(
+      (e) => e.type == originalType,
+    );
     return 'Bài tập thay thế: Bạn tập ${originalEx.name} chưa quen nên HLV tự động chuyển sang ${adaptedEx.name} nhẹ hơn để bảo vệ cơ thể.';
   }
 
-  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(List<Map<String, dynamic>> rawSchedule) {
-    // rawSchedule có 7 phần tử (Day 1 -> Day 7). Nhân bản thành 3 tuần (21 phần tử)
+  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(
+    List<Map<String, dynamic>> rawSchedule,
+  ) {
     final List<Map<String, dynamic>> raw21 = [];
-    
-    // Tuần 1: Tuần trước (ngày 1 - 7)
     for (int i = 0; i < 7; i++) {
       final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 1; // 1 đến 7
+      dayCopy['day'] = i + 1;
       dayCopy['weekLabel'] = 'Tuần trước';
       raw21.add(dayCopy);
     }
-    
-    // Tuần 2: Tuần này (ngày 8 - 14)
     for (int i = 0; i < 7; i++) {
       final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 8; // 8 đến 14
+      dayCopy['day'] = i + 8;
       dayCopy['weekLabel'] = 'Tuần này';
       raw21.add(dayCopy);
     }
-    
-    // Tuần 3: Tuần sau (ngày 15 - 21)
     for (int i = 0; i < 7; i++) {
       final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 15; // 15 đến 21
+      dayCopy['day'] = i + 15;
       dayCopy['weekLabel'] = 'Tuần sau';
       raw21.add(dayCopy);
     }
 
     final List<Map<String, dynamic>> processed = [];
-    for (final day in raw21) {
+    for (int index = 0; index < raw21.length; index++) {
+      final day = raw21[index];
       final dayCopy = Map<String, dynamic>.from(day);
       if (dayCopy['isRest'] == true) {
         processed.add(dayCopy);
@@ -135,12 +811,28 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       final List<Map<String, dynamic>> newExercises = [];
       for (int i = 0; i < exercises.length; i++) {
         final exMap = Map<String, dynamic>.from(exercises[i] as Map);
-        final ExerciseType originalType = exMap['type'] as ExerciseType;
-        final ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
-        
+        ExerciseType originalType = exMap['type'] as ExerciseType;
+        ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
+
+        // Kiểm tra không trùng bài với ngày trước đó
+        if (index > 0 && processed[index - 1]['isRest'] != true) {
+          final prevExercises =
+              (processed[index - 1]['exercises'] as List?)
+                  ?.map((e) => e['type'] as ExerciseType)
+                  .toSet() ??
+              {};
+          if (prevExercises.contains(adaptedType)) {
+            adaptedType = _getAlternativeExercise(adaptedType);
+          }
+        }
+
         if (originalType != adaptedType) {
           exMap['type'] = adaptedType;
-          exMap['reason'] = _getAdaptedReason(originalType, adaptedType, exMap['reason'] as String);
+          exMap['reason'] = _getAdaptedReason(
+            originalType,
+            adaptedType,
+            exMap['reason'] as String,
+          );
         }
         newExercises.add(exMap);
       }
@@ -149,7 +841,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
     return processed;
   }
-
 
   Future<void> _refreshTodayDraftWorkout() async {
     final draft = await _workoutDraftService.getTodayDraftWorkout();
@@ -237,7 +928,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           if (_height == 0.0) _height = 170.0;
           if (_age == 0) _age = 25;
 
-          // Đọc mục tiêu tập luyện từ database nếu có lưu trước đó
           final String? dbGoal = profile['muc_tieu'] ?? profile['fitness_goal'];
           double bmi = _weight / ((_height / 100) * (_height / 100));
 
@@ -253,9 +943,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             }
           }
 
-          // Đồng bộ ngược lại database nếu mục tiêu bị cưỡng chế thay đổi do BMI
           if (_selectedGoal != dbGoal) {
-            _updateGoal(_selectedGoal);
+            _updateGoal(_selectedGoal, currentBmi: bmi);
           }
         });
       }
@@ -319,7 +1008,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       });
 
       if (nextGoal != _selectedGoal) {
-        await _updateGoal(nextGoal);
+        await _updateGoal(nextGoal, currentBmi: newBmi);
+      } else {
+        await _triggerScheduleUpdateFromToday(newBmi);
       }
     } catch (e) {
       debugPrint('Lỗi cập nhật chỉ số thể chất: $e');
@@ -337,28 +1028,25 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  // Cập nhật mục tiêu và đồng bộ lên Database
-  Future<void> _updateGoal(String newGoal) async {
+  Future<void> _updateGoal(String newGoal, {double? currentBmi}) async {
     setState(() {
       _selectedGoal = newGoal;
     });
 
-    if (!_isSupabaseInitialized) return;
+    double bmi =
+        currentBmi ??
+        (_height > 0 ? _weight / ((_height / 100) * (_height / 100)) : 0.0);
+    await _triggerScheduleUpdateFromToday(bmi);
 
+    if (!_isSupabaseInitialized) return;
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
       if (userId != null) {
-        try {
-          await client
-              .from('ho_so_nguoi_dung')
-              .update({'muc_tieu': newGoal})
-              .eq('ma_nguoi_dung', userId);
-        } catch (dbError) {
-          debugPrint(
-            'Lỗi cập nhật mục tiêu CSDL: $dbError',
-          );
-        }
+        await client
+            .from('ho_so_nguoi_dung')
+            .update({'muc_tieu': newGoal})
+            .eq('ma_nguoi_dung', userId);
       }
     } catch (e) {
       debugPrint('Lỗi đồng bộ mục tiêu lên DB: $e');
@@ -374,23 +1062,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
   DateTime _getSelectedDayDate(int index) {
     final now = DateTime.now();
-    final todayIndex = now.weekday - 1; // 0 = Monday, 6 = Sunday
+    final todayIndex = now.weekday - 1;
     final startOfToday = DateTime(now.year, now.month, now.day);
     final mondayOfThisWeek = startOfToday.subtract(Duration(days: todayIndex));
     return mondayOfThisWeek.add(Duration(days: index - 7));
   }
 
-  bool _isDayWorkoutCompleted(
-    int index,
-    List<Map<String, dynamic>> adaptiveSchedule,
-  ) {
+  bool _isDayWorkoutCompleted(int index, List<Map<String, dynamic>> schedule) {
+    if (index >= schedule.length) return false;
     final dayDate = _getSelectedDayDate(index);
-    final selectedDayData = adaptiveSchedule[index];
+    final selectedDayData = schedule[index];
     final List<dynamic> currentExercises =
         selectedDayData['exercises'] as List<dynamic>? ?? [];
     final bool isRest = selectedDayData['isRest'] as bool? ?? false;
 
-    if (isRest) return true; // Ngày nghỉ xem như đã xong
+    if (isRest) return true;
     if (currentExercises.isEmpty) return false;
 
     for (var rec in currentExercises) {
@@ -406,66 +1092,45 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final dayKey = _getDayKey(day);
     final completionKeys =
         _completedExerciseKeysByDay[dayKey] ?? const <String>{};
-
-    return completionKeys.any((key) {
-      final parts = key.split('::');
-      if (parts.length < 3) return false;
-
-      final keyType = _exerciseTypeFromName(parts[0]);
-
-      final isRecommended = parts[2].toLowerCase() == 'recommended';
-
-      return isRecommended && keyType == type;
-    });
-  }
-
-  String _buildCompletionKey({
-    required ExerciseType type,
-    required int repsCount,
-    required bool isRecommended,
-  }) {
-    return '${type.name}::$repsCount::${isRecommended ? 'recommended' : 'custom'}';
-  }
-
-  String? _parseCompletionKeyFromRecord(String exerciseId, int repsCount) {
-    final parts = exerciseId.split('::');
-    if (parts.length < 3) return null;
-
-    final exerciseType = _exerciseTypeFromName(parts.first);
-    if (exerciseType == null) return null;
-
-    final parsedRepsCount = int.tryParse(parts[1]) ?? 0;
-    final isRecommended = parts[2].toLowerCase() == 'recommended';
-
-    if (!isRecommended) return null;
-
-    return _buildCompletionKey(
-      type: exerciseType,
-      repsCount: parsedRepsCount > 0 ? parsedRepsCount : repsCount,
-      isRecommended: true,
-    );
+    return completionKeys.contains(type.name);
   }
 
   Future<void> _loadCompletedExercisesForDay(DateTime day) async {
     if (!_isSupabaseInitialized) return;
-
     try {
       final completedRecords = await DatabaseService()
           .getCompletedExerciseRecordsForDate(day);
       final dayKey = _getDayKey(day);
+      final Set<String> completedExerciseNames = {};
 
-      final parsedKeys = completedRecords
-          .map<String?>((row) {
-            final exerciseId = (row['exercise_id'] as String?) ?? '';
-            final repsCount = (row['reps_count'] as num?)?.toInt() ?? 0;
-            return _parseCompletionKeyFromRecord(exerciseId, repsCount);
-          })
-          .whereType<String>()
-          .toSet();
+      for (final row in completedRecords) {
+        final String? loaiBaiTap =
+            row['loai_bai_tap'] as String? ?? row['source_tag'] as String?;
+        final String? maBaiTapRieng =
+            row['ma_bai_tap_rieng'] as String? ?? row['exercise_id'] as String?;
+        final int soLanTap =
+            (row['so_lan_tap'] as num?)?.toInt() ??
+            (row['reps_count'] as num?)?.toInt() ??
+            0;
+
+        final bool isRecommended =
+            loaiBaiTap != null &&
+            (loaiBaiTap.toLowerCase() == 'recommended' ||
+                loaiBaiTap.toLowerCase().startsWith('recommended:'));
+
+        String exerciseName = maBaiTapRieng ?? '';
+
+        if (isRecommended && exerciseName.isNotEmpty && soLanTap > 0) {
+          final exerciseType = _exerciseTypeFromName(exerciseName);
+          if (exerciseType != null) {
+            completedExerciseNames.add(exerciseType.name);
+          }
+        }
+      }
 
       if (mounted) {
         setState(() {
-          _completedExerciseKeysByDay[dayKey] = parsedKeys;
+          _completedExerciseKeysByDay[dayKey] = completedExerciseNames;
         });
       }
     } catch (e) {
@@ -484,43 +1149,33 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       dayKey,
       () => <String>{},
     );
+    final exerciseName = type.name;
 
-    final completionKey = _buildCompletionKey(
-      type: type,
-      repsCount: targetCount,
-      isRecommended: true,
-    );
-
-    if (completedForDay.contains(completionKey)) {
-      completedForDay.remove(completionKey);
+    if (completedForDay.contains(exerciseName)) {
+      completedForDay.remove(exerciseName);
     } else {
-      completedForDay.add(completionKey);
-
+      completedForDay.add(exerciseName);
       if (isManual) {
         try {
           await DatabaseService().saveWorkoutResult(
             exerciseType: type.name,
             repsCount: targetCount,
             durationSeconds:
-                type == ExerciseType.plank || type == ExerciseType.jumpingJack
+                type == ExerciseType.plank || type == ExerciseType.jumping_jack
                 ? targetCount
                 : 45,
             caloriesBurned: type == ExerciseType.plank
                 ? targetCount * 0.1
                 : targetCount * 0.4,
             incorrectPostures: 0,
-            sourceTag:
-                'recommended:${day.toIso8601String()}:${type.name}:$targetCount',
+            sourceTag: 'recommended',
           );
         } catch (e) {
           debugPrint('Lỗi đồng bộ tick bài tập: $e');
         }
       }
     }
-
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   ExerciseType? _exerciseTypeFromName(String name) {
@@ -549,7 +1204,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           backgroundColor: AppTheme.cardBackground,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Center(
             child: Text(
               'CẬP NHẬT THỂ TRẠNG',
@@ -617,11 +1274,17 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                   items: const [
                     DropdownMenuItem(
                       value: 'male',
-                      child: Text('Nam (Male)', style: TextStyle(color: Colors.white)),
+                      child: Text(
+                        'Nam (Male)',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                     DropdownMenuItem(
                       value: 'female',
-                      child: Text('Nữ (Female)', style: TextStyle(color: Colors.white)),
+                      child: Text(
+                        'Nữ (Female)',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ],
                   onChanged: (val) {
@@ -667,7 +1330,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     );
   }
 
-  // Thuật toán tính mục tiêu reps/seconds dựa trên TDEE & Mifflin-St Jeor theo chuẩn khoa học thể thao
   Map<ExerciseType, int> _calculateScientificReps(
     double weight,
     double height,
@@ -675,9 +1337,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     String goal,
     String gender,
   ) {
-    // 1. Tính toán các chỉ số nền tảng
     double bmi = weight / ((height / 100) * (height / 100));
-
     double bmr = 0.0;
     if (gender.toLowerCase() == 'female') {
       bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
@@ -686,7 +1346,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
     if (bmr < 1000) bmr = 1000;
 
-    // 2. Tự động điều chỉnh hệ số hoạt động dựa trên thể trạng
     double activityFactor = 1.2;
     if (bmi < 18.5) {
       activityFactor = 1.3;
@@ -701,7 +1360,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double tdee = bmr * activityFactor;
     double targetDailyCalories = tdee;
 
-    // 3. Tùy chỉnh mục tiêu Calo nạp vào dựa trên phân loại BMI của bạn
     if (bmi < 18.5) {
       targetDailyCalories = tdee + (tdee * 0.15);
     } else if (bmi < 25.0) {
@@ -720,7 +1378,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     if (targetDailyCalories < bmr) targetDailyCalories = bmr;
 
-    // 4. Tính toán calo cho buổi tập (Workout Calories)
     double targetWorkoutCalories = 0.0;
     if (bmi >= 25.0 || goal == 'lose') {
       targetWorkoutCalories = tdee * 0.12;
@@ -731,93 +1388,71 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
 
     targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
-
-    // Chia đều cho 4 bài tập
     final double caloriesPerExercise = targetWorkoutCalories / 4;
     final Map<ExerciseType, int> computedTargets = {};
-
-    // Tỉ lệ cân nặng để cá nhân hóa lượng calo tiêu thụ
     double weightFactor = weight / 70.0;
 
     for (final exercise in ExerciseDetail.defaultExercises) {
       if (exercise.isDurationBased) {
-        // --- BÀI TẬP TÍNH THEO GIÂY (Plank, Jumping Jacks...) ---
-        // Giả sử cpm là calo tiêu thụ mỗi phút của người 70kg
         double personalizedCpm = exercise.caloriesPerMin * weightFactor;
         double sec =
             (caloriesPerExercise * 60) /
-            (personalizedCpm > 0 ? personalizedCpm : 1); // Tránh chia cho 0
-
-        // Làm tròn đến hàng chục và nới rộng clamp (30s - 240s) để thấy sự khác biệt thể trạng
+            (personalizedCpm > 0 ? personalizedCpm : 1);
         int roundedSec = ((sec / 10).round() * 10).clamp(30, 240);
-        if (bmi >= 25.0) {
-          roundedSec = roundedSec.clamp(30, 120);
-        }
+        if (bmi >= 25.0) roundedSec = roundedSec.clamp(30, 120);
         if (gender.toLowerCase() == 'female') {
           roundedSec = (roundedSec * 0.85).round();
         }
         computedTargets[exercise.type] = roundedSec;
       } else {
-        // --- BÀI TẬP TÍNH THEO REP (Push-up, Squat, Burpee...) ---
-        // Lấy chỉ số calo thực tế trên 1 rep của từng bài (Dựa trên người 70kg)
         double caloriesPerRep = _getCaloPerRep(exercise.type) * weightFactor;
-
         double reps =
-            caloriesPerExercise /
-            (caloriesPerRep > 0 ? caloriesPerRep : 1); // Tránh chia cho 0
-        // Làm tròn đến số chia hết cho 2 hoặc 5 (ở đây giữ nguyên chia hết cho 5 của bạn)
+            caloriesPerExercise / (caloriesPerRep > 0 ? caloriesPerRep : 1);
         int roundedReps = ((reps / 5).round() * 5);
         if (gender.toLowerCase() == 'female') {
           roundedReps = (roundedReps * 0.85).round();
         }
 
-        // Nới rộng khoảng clamp để phân biệt rõ người khỏe/yếu, nặng/nhẹ cân
-        // giới hạn theo ACSM khuyến nghị hoa kì
         if (bmi >= 25.0) {
           if (exercise.type == ExerciseType.burpee) {
             roundedReps = roundedReps.clamp(5, 30);
-          } else if (exercise.type == ExerciseType.pushUp) {
+          } else if (exercise.type == ExerciseType.push_up) {
             roundedReps = roundedReps.clamp(5, 40);
           } else if (exercise.type == ExerciseType.squat) {
             roundedReps = roundedReps.clamp(5, 50);
-          } else if (exercise.type == ExerciseType.walkingLunge) {
+          } else if (exercise.type == ExerciseType.walking_lunge) {
             roundedReps = roundedReps.clamp(5, 30);
           } else {
             roundedReps = roundedReps.clamp(20, 80);
           }
-        }
-        if (exercise.type == ExerciseType.burpee) {
-          roundedReps = roundedReps.clamp(20, 120);
-        } else if (exercise.type == ExerciseType.pushUp) {
-          roundedReps = roundedReps.clamp(40, 160);
-        } else if (exercise.type == ExerciseType.squat) {
-          roundedReps = roundedReps.clamp(48, 160);
-        } else if (exercise.type == ExerciseType.walkingLunge) {
-          roundedReps = roundedReps.clamp(40, 160);
         } else {
-          roundedReps = roundedReps.clamp(48, 160);
+          if (exercise.type == ExerciseType.burpee) {
+            roundedReps = roundedReps.clamp(20, 120);
+          } else if (exercise.type == ExerciseType.push_up) {
+            roundedReps = roundedReps.clamp(40, 160);
+          } else if (exercise.type == ExerciseType.squat) {
+            roundedReps = roundedReps.clamp(48, 160);
+          } else if (exercise.type == ExerciseType.walking_lunge) {
+            roundedReps = roundedReps.clamp(40, 160);
+          } else {
+            roundedReps = roundedReps.clamp(48, 160);
+          }
         }
         computedTargets[exercise.type] = roundedReps;
       }
     }
-
     return computedTargets;
   }
 
-  // Hàm bổ trợ lấy Calo chuẩn trên 1 Rep của người 70kg
   double _getCaloPerRep(ExerciseType type) => switch (type) {
-    ExerciseType.burpee => 0.8, // Rất nặng, tốn nhiều năng lượng
-    ExerciseType.pushUp => 0.35, // Trung bình (8.5 cpm / 24 reps)
-    ExerciseType.walkingLunge =>
-      0.4, // Trọng lượng dồn 1 chân (8.0 cpm / 20 reps)
-    ExerciseType.squat => 0.35, // Nhóm cơ lớn (7.0 cpm / 20 reps)
-    ExerciseType.jumpingJack =>
-      0.25, // Động tác nhanh, calo mỗi cái thấp (10.0 cpm / 40 reps)
-    ExerciseType.plank =>
-      0.0, // Bài tập giữ trạng thái (tính theo giây, không tính rep)
+    ExerciseType.burpee => 0.8,
+    ExerciseType.push_up => 0.35,
+    ExerciseType.walking_lunge => 0.4,
+    ExerciseType.squat => 0.35,
+    ExerciseType.jumping_jack => 0.25,
+    ExerciseType.plank => 0.0,
   };
 
-  // B. SINH LỊCH TRÌNH 7 NGÀY THÍCH ỨNG THEO MỤC TIÊU & THỂ TRẠNG
   List<Map<String, dynamic>> _generateAdaptiveSchedule(
     String goal,
     double bmi,
@@ -833,32 +1468,31 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.jumpingJack,
+              'type': ExerciseType.jumping_jack,
               'reason':
-                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch.',
+                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
             },
             {
-              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
-              'reason': avoidBurpee
-                  ? 'Chống đẩy giúp đốt calo thân trên an toàn và tránh gây lực nén tiếp đất đột ngột lên khớp chân.'
-                  : 'Burpee bộc phát giúp đẩy tối đa hiệu suất tiêu hao năng lượng trong ngày khởi đầu.',
+              'type': ExerciseType.burpee,
+              'reason':
+                  'Burpee bộc phát giúp đẩy tối đa hiệu suất tiêu hao năng lượng trong ngày khởi đầu (Toàn thân).',
             },
           ],
         },
         {
           'day': 2,
-          'title': 'Kích hoạt bụng core',
+          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
           'isRest': false,
           'exercises': [
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Plank để củng cố sức mạnh nhóm cơ core trung tâm bụng lưng.',
+                  'Plank để củng cố sức mạnh nhóm cơ core trung tâm bụng lưng (Thân trên).',
             },
             {
-              'type': ExerciseType.squat,
+              'type': ExerciseType.push_up,
               'reason':
-                  'Squat đùi mông để tăng khả năng đốt mỡ thụ động thông qua cơ bắp chân.',
+                  'Chống đẩy duy trì phom ngực và vai săn chắc (Thân trên).',
             },
           ],
         },
@@ -875,48 +1509,48 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.jumpingJack,
+              'type': ExerciseType.squat,
               'reason':
-                  'Jumping Jack tăng cường hoạt động hô hấp và tuần hoàn tim mạch.',
+                  'Squat tăng cường sức mạnh đùi mông và cải thiện tính thăng bằng (Thân dưới).',
             },
             {
-              'type': ExerciseType.walkingLunge,
+              'type': ExerciseType.walking_lunge,
               'reason':
-                  'Lunge bước đi săn chắc đùi mông và cải thiện tính thăng bằng khớp hông.',
+                  'Lunge bước đi săn chắc đùi mông và cải thiện tính thăng bằng khớp hông (Thân dưới).',
             },
           ],
         },
         {
           'day': 5,
-          'title': 'Sức mạnh & Bộc phát',
+          'title': 'Sức bền & Bộc phát',
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.squat,
+              'type': ExerciseType.jumping_jack,
               'reason':
-                  'Gánh đùi Squat sâu giúp tăng cường cơ lực và bôi trơn ổ khớp chân.',
+                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
             },
             {
-              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
-              'reason': avoidBurpee
-                  ? 'Chống đẩy rèn sức chịu đựng cơ đẩy ngực tay mà không gây quá tải cho khớp gối.'
-                  : 'Burpee cường độ cao giúp tối ưu hóa calo thâm hụt.',
+              'type': ExerciseType.burpee,
+              'reason':
+                  'Burpee cường độ cao giúp tối ưu hóa calo thâm hụt (Toàn thân).',
             },
           ],
         },
         {
           'day': 6,
-          'title': 'Siết eo & Sức bền',
+          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
           'isRest': false,
           'exercises': [
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Thử thách Plank giữ thẳng lưng giúp định hình vòng eo thon nhỏ.',
+                  'Thử thách Plank giữ thẳng lưng giúp định hình vòng eo thon nhỏ (Thân trên).',
             },
             {
-              'type': ExerciseType.pushUp,
-              'reason': 'Chống đẩy duy trì phom ngực và vai săn chắc.',
+              'type': ExerciseType.push_up,
+              'reason':
+                  'Chống đẩy duy trì phom ngực và vai săn chắc (Thân trên).',
             },
           ],
         },
@@ -936,14 +1570,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.pushUp,
+              'type': ExerciseType.push_up,
               'reason':
-                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau.',
+                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
             },
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Plank tăng độ vững chãi cho core bụng để chịu lực cơ thể tốt hơn.',
+                  'Plank tăng độ vững chãi cho core bụng để chịu lực cơ thể tốt hơn (Thân trên).',
             },
           ],
         },
@@ -955,12 +1589,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             {
               'type': ExerciseType.squat,
               'reason':
-                  'Squat kích hoạt sản sinh hormone tăng trưởng tự nhiên để phát triển nhóm cơ lớn nhất cơ thể.',
+                  'Squat kích hoạt sản sinh hormone tăng trưởng tự nhiên để phát triển nhóm cơ lớn nhất cơ thể (Thân dưới).',
             },
             {
-              'type': ExerciseType.walkingLunge,
+              'type': ExerciseType.walking_lunge,
               'reason':
-                  'Walking Lunge tăng sức mạnh độc lập từng chân và cải thiện tính linh hoạt khớp hông.',
+                  'Walking Lunge tăng sức mạnh độc lập từng chân và cải thiện tính linh hoạt khớp hông (Thân dưới).',
             },
           ],
         },
@@ -977,49 +1611,48 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           'isRest': false,
           'exercises': [
             {
-              'type': avoidBurpee ? ExerciseType.pushUp : ExerciseType.burpee,
-              'reason': avoidBurpee
-                  ? 'Chống đẩy rèn luyện trương lực cơ phần trên an toàn khi không thể nhảy burpee.'
-                  : 'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện.',
+              'type': ExerciseType.burpee,
+              'reason':
+                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
             },
             {
-              'type': ExerciseType.squat,
+              'type': ExerciseType.jumping_jack,
               'reason':
-                  'Squat nhịp độ đều đặn để duy trì thể tích bơm máu vào các nhóm cơ chân.',
+                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
             },
           ],
         },
         {
           'day': 5,
-          'title': 'Core bụng & Sức chống chịu',
+          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
           'isRest': false,
           'exercises': [
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Plank tăng sức bền tĩnh cho cột sống và nhóm cơ sườn chậu.',
+                  'Plank tăng sức bền tĩnh cho cột sống và nhóm cơ sườn chậu (Thân trên).',
             },
             {
-              'type': ExerciseType.walkingLunge,
+              'type': ExerciseType.push_up,
               'reason':
-                  'Lunge bước chậm rèn luyện khả năng giữ thăng bằng di động và dẻo dai cơ mông.',
+                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
             },
           ],
         },
         {
           'day': 6,
-          'title': 'Sức bền Thân trên',
+          'title': 'Sức bền ',
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.pushUp,
+              'type': ExerciseType.burpee,
               'reason':
-                  'Chống đẩy siết cơ ngực tay vai, gia tăng thể tích cơ nạc thân trên.',
+                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
             },
             {
-              'type': ExerciseType.jumpingJack,
+              'type': ExerciseType.jumping_jack,
               'reason':
-                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất.',
+                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất (Toàn thân).',
             },
           ],
         },
@@ -1032,22 +1665,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         },
       ];
     } else {
-      // maintain - Giữ dáng linh hoạt
       return [
         {
           'day': 1,
-          'title': 'Khởi động & Core bụng',
+          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
           'isRest': false,
           'exercises': [
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Plank siết eo nhẹ nhàng duy trì bụng phẳng và tư thế đứng thẳng đẹp mắt.',
+                  'Plank siết eo nhẹ nhàng duy trì bụng phẳng và tư thế đứng thẳng đẹp mắt (Thân trên).',
             },
             {
-              'type': ExerciseType.jumpingJack,
+              'type': ExerciseType.push_up,
               'reason':
-                  'Jumping Jack vận động tim mạch nhẹ nhàng để tiêu hao mỡ thừa tích tụ.',
+                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
             },
           ],
         },
@@ -1059,12 +1691,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             {
               'type': ExerciseType.squat,
               'reason':
-                  'Squat vừa sức duy trì cơ đùi mông săn gọn và linh hoạt ổ khớp gối.',
+                  'Squat vừa sức duy trì cơ đùi mông săn gọn và linh hoạt ổ khớp gối (Thân dưới).',
             },
             {
-              'type': ExerciseType.walkingLunge,
+              'type': ExerciseType.walking_lunge,
               'reason':
-                  'Walking Lunge tăng độ thăng bằng di động cho cơ khớp hông háng.',
+                  'Walking Lunge tăng độ thăng bằng di động cho cơ khớp hông háng (Thân dưới).',
             },
           ],
         },
@@ -1077,51 +1709,52 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         },
         {
           'day': 4,
-          'title': 'Sức mạnh vừa sức',
+          'title': 'Sức bền toàn diện',
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.pushUp,
+              'type': ExerciseType.burpee,
               'reason':
-                  'Chống đẩy duy trì cơ ngực bả vai săn chắc tự nhiên không bị chảy xệ.',
+                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
             },
             {
-              'type': ExerciseType.squat,
+              'type': ExerciseType.jumping_jack,
               'reason':
-                  'Squat nhẹ nhàng để bôi trơn khớp gối và tăng tuần hoàn máu chân.',
+                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất (Toàn thân).',
             },
           ],
         },
         {
           'day': 5,
-          'title': 'Sức bền toàn diện',
+          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.jumpingJack,
+              'type': ExerciseType.push_up,
               'reason':
-                  'Jumping Jack rèn luyện khả năng hô hấp và tăng tính linh hoạt toàn thân.',
+                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
             },
             {
               'type': ExerciseType.plank,
               'reason':
-                  'Plank giữ vững liên kết cột sống lưng tránh đau mỏi do ngồi văn phòng nhiều.',
+                  'Plank giữ vững liên kết cột sống lưng tránh đau mỏi do ngồi văn phòng nhiều (Thân trên).',
             },
           ],
         },
         {
           'day': 6,
-          'title': 'Linh hoạt & Định hình',
+          'title': 'Sức mạnh thân dưới',
           'isRest': false,
           'exercises': [
             {
-              'type': ExerciseType.walkingLunge,
-              'reason': 'Lunge bước đi nhẹ nhàng làm thon gọn bắp đùi mông.',
+              'type': ExerciseType.walking_lunge,
+              'reason':
+                  'Lunge bước đi nhẹ nhàng làm thon gọn bắp đùi mông (Thân dưới).',
             },
             {
-              'type': ExerciseType.pushUp,
+              'type': ExerciseType.squat,
               'reason':
-                  'Chống đẩy duy trì sức chịu lực cổ tay và cơ ngực vai khỏe khoắn.',
+                  'Squat tăng cường sức mạnh đùi mông và cải thiện tính thăng bằng (Thân dưới).',
             },
           ],
         },
@@ -1136,13 +1769,46 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
+  Widget _buildGoalChip(String id, String label) {
+    final isSelected = _selectedGoal == id;
+    return GestureDetector(
+      onTap: () => _updateGoal(id),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.neonGreen.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? AppTheme.neonGreen : Colors.white60,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 1. Tính toán BMR & TDEE theo Mifflin-St Jeor khoa học
+    if (_isLoading || _savedSchedule.isEmpty) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(color: AppTheme.neonGreen),
+        ),
+      );
+    }
+
     final double bmr = _height > 0
         ? (_gender.toLowerCase() == 'female'
-            ? (10 * _weight) + (6.25 * _height) - (5 * _age) - 161
-            : (10 * _weight) + (6.25 * _height) - (5 * _age) + 5)
+              ? (10 * _weight) + (6.25 * _height) - (5 * _age) - 161
+              : (10 * _weight) + (6.25 * _height) - (5 * _age) + 5)
         : 0.0;
     final double tdee = bmr * 1.375;
     double targetWorkoutCalories = 0.0;
@@ -1156,12 +1822,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     if (targetWorkoutCalories < 80) targetWorkoutCalories = 80;
     if (targetWorkoutCalories > 350) targetWorkoutCalories = 350;
 
-    // 2. Tính toán BMI sinh học
     double bmi = _height > 0
         ? _weight / ((_height / 100) * (_height / 100))
         : 0.0;
 
-    // Đánh giá trạng thái thể trạng
     String bmiStatus = 'Bình thường';
     Color bmiColor = AppTheme.neonGreen;
     String coachAdvice = '';
@@ -1190,23 +1854,15 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     final isLoseWeight = _selectedGoal == 'lose';
 
-    // 3. SINH BÀI TẬP ĐỀ XUẤT VÀ LỊCH TRÌNH THÍCH ỨNG DỰA TRÊN THỂ TRẠNG THỰC TẾ
-    final rawSchedule = _generateAdaptiveSchedule(
-      _selectedGoal,
-      bmi,
-      _age,
-    );
-    final adaptiveSchedule = _postProcessAdaptiveSchedule(rawSchedule);
     final int todayIndex = DateTime.now().weekday - 1;
     final int safeTodayIndex = 7 + todayIndex;
     final selectedDayIndex = _selectedDayIndex.clamp(
       0,
-      adaptiveSchedule.length - 1,
+      _savedSchedule.length - 1,
     );
-    final selectedDayData = adaptiveSchedule[selectedDayIndex];
+    final selectedDayData = _savedSchedule[selectedDayIndex];
     final selectedDayDate = _getSelectedDayDate(selectedDayIndex);
 
-    // 4. Tính toán số lượng mục tiêu (Rep/Giây) dựa trên TDEE
     final scientificTargets = _calculateScientificReps(
       _weight,
       _height,
@@ -1218,970 +1874,963 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppTheme.neonGreen),
-              )
-            : CustomScrollView(
-                slivers: [
-                  // 1. THANH TIÊU ĐỀ
-                  SliverAppBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    pinned: true,
-                    leading: IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    title: const Text(
-                      'AI HLV CÁ NHÂN',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
-
-                  // 2. KHU VỰC THÔNG SỐ CƠ THỂ
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20.0,
-                        vertical: 10.0,
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              pinned: true,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: const Text(
+                'AI HLV CÁ NHÂN',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0,
+                  vertical: 10.0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: AppTheme.glassDecoration(
+                        color: AppTheme.cardBackground.withValues(alpha: 0.5),
+                        borderRadius: 20,
                       ),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Hộp thông số thể trạng
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: AppTheme.glassDecoration(
-                              color: AppTheme.cardBackground.withValues(
-                                alpha: 0.5,
-                              ),
-                              borderRadius: 20,
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Hồ sơ thể chất: $_userName',
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${_height.toStringAsFixed(0)} cm/ ${_weight.toStringAsFixed(0)} kg/ $_age tuổi',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    ElevatedButton.icon(
-                                      onPressed: _showEditStatsDialog,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white10,
-                                        elevation: 0,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
-                                        ),
-                                      ),
-                                      icon: const Icon(
-                                        Icons.edit,
-                                        color: Colors.white,
-                                        size: 14,
-                                      ),
-                                      label: const Text(
-                                        'Sửa',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const Divider(
-                                  color: Colors.white12,
-                                  height: 24,
-                                ),
-
-                                // Thang đo BMI
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Chỉ số BMI hiện tại:',
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: bmiColor.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: bmiColor.withValues(
-                                            alpha: 0.4,
-                                          ),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '${bmi.toStringAsFixed(1)} - $bmiStatus',
-                                        style: TextStyle(
-                                          color: bmiColor,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-
-                                const Divider(
-                                  color: Colors.white12,
-                                  height: 24,
-                                ),
-
-                                // BMR & TDEE khoa học
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'BMR (Trao đổi chất cơ bản):',
-                                          style: TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        SizedBox(height: 4),
-                                        Text(
-                                          'TDEE (Tiêu hao năng lượng ngày):',
-                                          style: TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${bmr.toStringAsFixed(0)} kcal',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${tdee.toStringAsFixed(0)} kcal',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-
-                                const Divider(
-                                  color: Colors.white12,
-                                  height: 24,
-                                ),
-
-                                // Mục tiêu đốt calo của buổi tập
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Mục tiêu calo qua bài tập:',
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    Text(
-                                      '~${targetWorkoutCalories.toStringAsFixed(0)} kcal/ngày',
-                                      style: const TextStyle(
-                                        color: AppTheme.neonGreen,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // LỜI KHUYÊN CỦA HLV AI
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: AppTheme.glassDecoration(
-                              color: AppTheme.neonGreen.withValues(alpha: 0.08),
-                              borderRadius: 16,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(
-                                  Icons.support_agent,
-                                  color: AppTheme.neonGreen,
-                                  size: 28,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Lời khuyên của HLV AI:',
-                                        style: TextStyle(
-                                          color: AppTheme.neonGreen,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        coachAdvice,
-                                        style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.85,
-                                          ),
-                                          fontSize: 11.5,
-                                          height: 1.4,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // 3. CHỌN MỤC TIÊU TẬP LUYỆN
-                          const Text(
-                            'CHỌN MỤC TIÊU TẬP LUYỆN',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.neonGreen,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B), // Slate 800
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.08),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: _buildGoalChip('lose', '🎯 Giảm cân'),
-                                ),
-                                Expanded(
-                                  child: _buildGoalChip(
-                                    'maintain',
-                                    '⚖️ Giữ dáng',
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _buildGoalChip('build', '💪 Tăng cơ'),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          // DỜI LÊN ĐÂY: LỊCH TRÌNH CHỌN THỨ TRONG TUẦN (HIỆN CHO TẤT CẢ CÁC MỤC TIÊU)
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Icon(
-                                Icons.calendar_month,
-                                color: AppTheme.neonGreen,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  isLoseWeight
-                                      ? 'LỊCH TRÌNH GIẢM CÂN THEO NGÀY'
-                                      : 'LỊCH TRÌNH TẬP LUYỆN & DINH DƯỠNG',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.neonGreen,
-                                    letterSpacing: 1.2,
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Hồ sơ thể chất: $_userName',
+                                    style: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
                                   ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${_height.toStringAsFixed(0)} cm/ ${_weight.toStringAsFixed(0)} kg/ $_age tuổi',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: _showEditStatsDialog,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white10,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                                label: const Text(
+                                  'Sửa',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          // 1. Sleek week tab selector
+                          const Divider(color: Colors.white12, height: 24),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(3, (weekIdx) {
-                              final labels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
-                              final isSelected = _selectedWeekIndex == weekIdx;
-                              return Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedWeekIndex = weekIdx;
-                                      // Khi đổi tuần, tự động chọn ngày Thứ Hai của tuần đó
-                                      _selectedDayIndex = weekIdx * 7;
-                                    });
-                                    final selectedDate = _getSelectedDayDate(_selectedDayIndex);
-                                    _loadCompletedExercisesForDay(selectedDate);
-                                    _loadMealLogsForDay(selectedDate);
-                                  },
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 200),
-                                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? AppTheme.neonGreen.withValues(alpha: 0.15)
-                                          : Colors.white.withValues(alpha: 0.02),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? AppTheme.neonGreen.withValues(alpha: 0.4)
-                                            : Colors.white.withValues(alpha: 0.05),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        labels[weekIdx],
-                                        style: TextStyle(
-                                          color: isSelected ? AppTheme.neonGreen : Colors.white60,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Chỉ số BMI hiện tại:',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: bmiColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: bmiColor.withValues(alpha: 0.4),
                                   ),
                                 ),
-                              );
-                            }),
+                                child: Text(
+                                  '${bmi.toStringAsFixed(1)} - $bmiStatus',
+                                  style: TextStyle(
+                                    color: bmiColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 12),
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final shortWeekdays = [
-                                'T2',
-                                'T3',
-                                'T4',
-                                'T5',
-                                'T6',
-                                'T7',
-                                'CN',
-                              ];
-                              final cellWidth =
-                                  (constraints.maxWidth - (6 * 6)) /
-                                  7; // Spacing 6px giữa 7 cột
-
-                              return Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: List.generate(7, (colIndex) {
-                                  final dayGlobalIndex = (_selectedWeekIndex * 7) + colIndex;
-                                  final isToday = dayGlobalIndex == safeTodayIndex;
-                                  final isSelected = dayGlobalIndex == selectedDayIndex;
-                                  final isCompleted = _isDayWorkoutCompleted(
-                                    dayGlobalIndex,
-                                    adaptiveSchedule,
-                                  );
-                                  final dayDate = _getSelectedDayDate(dayGlobalIndex);
-
-                                  return GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedDayIndex = dayGlobalIndex;
-                                      });
-                                      final selectedDate = _getSelectedDayDate(
-                                        dayGlobalIndex,
-                                      );
-                                      _loadCompletedExercisesForDay(
-                                        selectedDate,
-                                      );
-                                      _loadMealLogsForDay(selectedDate);
-                                    },
-                                    child: AnimatedContainer(
-                                      duration: const Duration(
-                                        milliseconds: 200,
-                                      ),
-                                      width: cellWidth,
-                                      height: 70, // Tăng chiều cao lên một chút để hiển thị số ngày đẹp mắt
-                                      decoration: isSelected
-                                          ? BoxDecoration(
-                                              gradient: const LinearGradient(
-                                                colors: [
-                                                  Color(0xFF3B82F6),
-                                                  Color(0xFF1D4ED8),
-                                                ], // Gradient xanh dương hiện đại nổi bật
-                                                begin: Alignment.topCenter,
-                                                end: Alignment.bottomCenter,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.blue.withValues(
-                                                    alpha: 0.25,
-                                                  ),
-                                                  blurRadius: 6,
-                                                  offset: const Offset(0, 2),
-                                                ),
-                                              ],
-                                            )
-                                          : BoxDecoration(
-                                              color: isToday
-                                                  ? Colors.white.withValues(
-                                                      alpha: 0.08,
-                                                    )
-                                                  : Colors.white.withValues(
-                                                      alpha: 0.02,
-                                                    ),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: isToday
-                                                    ? AppTheme.neonGreen
-                                                          .withValues(
-                                                            alpha: 0.3,
-                                                          )
-                                                    : Colors.white.withValues(
-                                                        alpha: 0.05,
-                                                      ),
-                                                width: 1,
-                                              ),
-                                            ),
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            shortWeekdays[colIndex],
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? Colors.white
-                                                  : (isToday
-                                                        ? AppTheme.neonGreen
-                                                        : Colors.white
-                                                              .withValues(
-                                                                alpha: 0.5,
-                                                              )),
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 10,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            '${dayDate.day}',
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? Colors.white
-                                                  : (isToday
-                                                        ? AppTheme.neonGreen
-                                                        : Colors.white),
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          // Dấu chấm tròn báo hiệu đã hoàn thành bài tập hoặc ngày nghỉ ngơi
-                                          Container(
-                                            width: 5,
-                                            height: 5,
-                                            decoration: BoxDecoration(
-                                              color: isCompleted
-                                                  ? AppTheme.neonGreen
-                                                  : (isSelected
-                                                        ? Colors.white54
-                                                        : Colors.transparent),
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                          const Divider(color: Colors.white12, height: 24),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'BMR (Trao đổi chất cơ bản):',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
                                     ),
-                                  );
-                                }),
-                              );
-                            },
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'TDEE (Tiêu hao năng lượng ngày):',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '${bmr.toStringAsFixed(0)} kcal',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${tdee.toStringAsFixed(0)} kcal',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 20),
-                          NutritionPanel(
-                            weight: _weight,
-                            height: _height,
-                            age: _age,
-                            selectedGoal: _selectedGoal,
-                            bmi: bmi,
-                            selectedDayDate: selectedDayDate,
-                            todayMealLogs: _todayMealLogs,
-                            gender: _gender,
-                            onMealLogsUpdated: (updatedLogs) {
-                              setState(() {
-                                _todayMealLogs = updatedLogs;
-                              });
-                              _saveMealLogsForDay(selectedDayDate);
-                            },
+                          const Divider(color: Colors.white12, height: 24),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Mục tiêu calo qua bài tập:',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                '~${targetWorkoutCalories.toStringAsFixed(0)} kcal/ngày',
+                                style: const TextStyle(
+                                  color: AppTheme.neonGreen,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 20),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white10),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: AppTheme.glassDecoration(
+                        color: AppTheme.neonGreen.withValues(alpha: 0.08),
+                        borderRadius: 16,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.support_agent,
+                            color: AppTheme.neonGreen,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Lời khuyên của HLV AI:',
+                                  style: TextStyle(
+                                    color: AppTheme.neonGreen,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  coachAdvice,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                    fontSize: 11.5,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Theme(
-                                data: Theme.of(
-                                  context,
-                                ).copyWith(dividerColor: Colors.transparent),
-                                child: ExpansionTile(
-                                  key: const PageStorageKey<String>(
-                                    'workout_panel',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'CHỌN MỤC TIÊU TẬP LUYỆN',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.neonGreen,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _buildGoalChip('lose', '🎯 Giảm cân'),
+                          ),
+                          Expanded(
+                            child: _buildGoalChip('maintain', '⚖️ Giữ dáng'),
+                          ),
+                          Expanded(
+                            child: _buildGoalChip('build', '💪 Tăng cơ'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_month,
+                          color: AppTheme.neonGreen,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            isLoseWeight
+                                ? 'LỊCH TRÌNH GIẢM CÂN THEO NGÀY'
+                                : 'LỊCH TRÌNH TẬP LUYỆN & DINH DƯỠNG',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.neonGreen,
+                              letterSpacing: 1.2,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(3, (weekIdx) {
+                        final labels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
+                        final isSelected = _selectedWeekIndex == weekIdx;
+                        return Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _selectedWeekIndex = weekIdx;
+                                _selectedDayIndex = weekIdx * 7;
+                              });
+                              final selectedDate = _getSelectedDayDate(
+                                _selectedDayIndex,
+                              );
+                              _loadCompletedExercisesForDay(selectedDate);
+                              _loadMealLogsForDay(selectedDate);
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppTheme.neonGreen.withValues(alpha: 0.15)
+                                    : Colors.white.withValues(alpha: 0.02),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppTheme.neonGreen.withValues(
+                                          alpha: 0.4,
+                                        )
+                                      : Colors.white.withValues(alpha: 0.05),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  labels[weekIdx],
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? AppTheme.neonGreen
+                                        : Colors.white60,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
                                   ),
-                                  initiallyExpanded: true,
-                                  title: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.fitness_center,
-                                        color: AppTheme.neonGreen,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Expanded(
-                                        child: Text(
-                                          '💪 LUYỆN TẬP & BÀI TẬP ĐỀ XUẤT',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppTheme.neonGreen,
-                                            letterSpacing: 0.8,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  subtitle: Builder(
-                                    builder: (context) {
-                                      final List<dynamic> currentExercises =
-                                          selectedDayData['exercises']
-                                              as List<dynamic>? ??
-                                          [];
-                                      final bool isRest =
-                                          selectedDayData['isRest'] as bool? ??
-                                          false;
-
-                                      if (isRest) {
-                                        return const Text(
-                                          'Hôm nay: Nghỉ ngơi & phục hồi',
-                                          style: TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 11,
-                                          ),
-                                        );
-                                      }
-
-                                      int totalExercises =
-                                          currentExercises.length;
-                                      int completedCount = 0;
-                                      for (var rec in currentExercises) {
-                                        final ExerciseType type =
-                                            rec['type'] as ExerciseType;
-                                        if (_isExerciseCompletedForDay(
-                                          type,
-                                          selectedDayDate,
-                                        )) {
-                                          completedCount++;
-                                        }
-                                      }
-                                      return Text(
-                                        'Đã tập: $completedCount / $totalExercises bài (${totalExercises > 0 ? ((completedCount / totalExercises) * 100).toStringAsFixed(0) : 0}%)',
-                                        style: TextStyle(
-                                          color:
-                                              completedCount ==
-                                                      totalExercises &&
-                                                  totalExercises > 0
-                                              ? AppTheme.neonGreen
-                                              : Colors.white70,
-                                          fontSize: 11,
-                                          fontWeight:
-                                              completedCount ==
-                                                      totalExercises &&
-                                                  totalExercises > 0
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  childrenPadding: const EdgeInsets.all(16),
-                                  expandedCrossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    if (selectedDayData['title'] != null) ...[
-                                      Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
-                                        ),
-                                        margin: const EdgeInsets.only(
-                                          bottom: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black12,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white10,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text(
-                                              'TIÊU ĐIỂM HÔM NAY:',
-                                              style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                selectedDayData['title']
-                                                    .toString()
-                                                    .toUpperCase(),
-                                                style: const TextStyle(
-                                                  color: AppTheme.neonGreen,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12,
-                                                ),
-                                                textAlign: TextAlign.end,
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                    Builder(
-                                      builder: (context) {
-                                        final bool isRest =
-                                            selectedDayData['isRest']
-                                                as bool? ??
-                                            false;
-                                        if (isRest) {
-                                          return Container(
-                                            width: double.infinity,
-                                            padding: const EdgeInsets.all(16),
-                                            decoration: BoxDecoration(
-                                              color: Colors.black12,
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: Colors.white10,
-                                              ),
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                const Icon(
-                                                  Icons.spa,
-                                                  color: AppTheme.neonBlue,
-                                                  size: 36,
-                                                ),
-                                                const SizedBox(height: 8),
-                                                const Text(
-                                                  'NGÀY NGHỈ NGƠI & PHỤC HỒI',
-                                                  style: TextStyle(
-                                                    color: AppTheme.neonBlue,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 13,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Text(
-                                                  selectedDayData['reason']
-                                                      .toString(),
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    color: Colors.white70,
-                                                    fontSize: 11,
-                                                    height: 1.4,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        }
-                                        return const SizedBox.shrink();
-                                      },
-                                    ),
-                                    Builder(
-                                      builder: (context) {
-                                        final List<dynamic> currentExercises =
-                                            selectedDayData['exercises']
-                                                as List<dynamic>? ??
-                                            [];
-                                        final bool isRest =
-                                            selectedDayData['isRest']
-                                                as bool? ??
-                                            false;
-                                        if (isRest ||
-                                            currentExercises.isEmpty) {
-                                          return const SizedBox.shrink();
-                                        }
-
-                                        int totalExercises =
-                                            currentExercises.length;
-                                        int completedCount = 0;
-                                        final List<String> completedList = [];
-                                        final List<String> missingList = [];
-
-                                        for (var rec in currentExercises) {
-                                          final ExerciseType type =
-                                              rec['type'] as ExerciseType;
-                                          final originalExercise =
-                                              ExerciseDetail.defaultExercises
-                                                  .firstWhere(
-                                                    (e) => e.type == type,
-                                                  );
-                                          final bool isCompleted =
-                                              _isExerciseCompletedForDay(
-                                                type,
-                                                selectedDayDate,
-                                              );
-                                          if (isCompleted) {
-                                            completedCount++;
-                                            completedList.add(
-                                              originalExercise.name,
-                                            );
-                                          } else {
-                                            missingList.add(
-                                              originalExercise.name,
-                                            );
-                                          }
-                                        }
-
-                                        return Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                const Text(
-                                                  'TIẾN ĐỘ THỰC HIỆN',
-                                                  style: TextStyle(
-                                                    color: Colors.white70,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  '$completedCount/$totalExercises bài',
-                                                  style: const TextStyle(
-                                                    color: AppTheme.neonGreen,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 6),
-                                            ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                              child: LinearProgressIndicator(
-                                                value:
-                                                    (completedCount /
-                                                    totalExercises),
-                                                backgroundColor: Colors.white10,
-                                                valueColor:
-                                                    const AlwaysStoppedAnimation<
-                                                      Color
-                                                    >(AppTheme.neonGreen),
-                                                minHeight: 6,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Container(
-                                              width: double.infinity,
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(
-                                                color:
-                                                    completedCount ==
-                                                        totalExercises
-                                                    ? AppTheme.neonGreen
-                                                          .withValues(
-                                                            alpha: 0.05,
-                                                          )
-                                                    : AppTheme.errorRed
-                                                          .withValues(
-                                                            alpha: 0.05,
-                                                          ),
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                                border: Border.all(
-                                                  color:
-                                                      completedCount ==
-                                                          totalExercises
-                                                      ? AppTheme.neonGreen
-                                                            .withValues(
-                                                              alpha: 0.15,
-                                                            )
-                                                      : AppTheme.errorRed
-                                                            .withValues(
-                                                              alpha: 0.15,
-                                                            ),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    completedCount ==
-                                                            totalExercises
-                                                        ? Icons.stars_rounded
-                                                        : Icons
-                                                              .warning_amber_rounded,
-                                                    color:
-                                                        completedCount ==
-                                                            totalExercises
-                                                        ? AppTheme.neonGreen
-                                                        : AppTheme.errorRed,
-                                                    size: 16,
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Text(
-                                                      completedCount ==
-                                                              totalExercises
-                                                          ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập của ngày này!'
-                                                          : 'Bạn đang thiếu bài tập: ${missingList.join(", ")}.',
-                                                      style: TextStyle(
-                                                        color:
-                                                            completedCount ==
-                                                                totalExercises
-                                                            ? AppTheme.neonGreen
-                                                            : AppTheme.errorRed,
-                                                        fontSize: 10.5,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            const Divider(
-                                              color: Colors.white10,
-                                              height: 24,
-                                            ),
-                                            ...currentExercises.map((rec) {
-                                              return _buildExerciseCard(
-                                                rec as Map<String, dynamic>,
-                                                scientificTargets,
-                                                caloriesPerExercise,
-                                                selectedDayIndex ==
-                                                    safeTodayIndex,
-                                                selectedDayDate,
-                                              );
-                                            }),
-                                          ],
-                                        );
-                                      },
-                                    ),
-                                  ],
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                        ],
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final shortWeekdays = [
+                          'T2',
+                          'T3',
+                          'T4',
+                          'T5',
+                          'T6',
+                          'T7',
+                          'CN',
+                        ];
+                        final cellWidth = (constraints.maxWidth - (6 * 6)) / 7;
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(7, (colIndex) {
+                            final dayGlobalIndex =
+                                (_selectedWeekIndex * 7) + colIndex;
+                            final isToday = dayGlobalIndex == safeTodayIndex;
+                            final isSelected =
+                                dayGlobalIndex == selectedDayIndex;
+                            final isCompleted = _isDayWorkoutCompleted(
+                              dayGlobalIndex,
+                              _savedSchedule,
+                            );
+                            final dayDate = _getSelectedDayDate(dayGlobalIndex);
+
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedDayIndex = dayGlobalIndex;
+                                });
+                                final selectedDate = _getSelectedDayDate(
+                                  dayGlobalIndex,
+                                );
+                                _loadCompletedExercisesForDay(selectedDate);
+                                _loadMealLogsForDay(selectedDate);
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: cellWidth,
+                                height: 70,
+                                decoration: isSelected
+                                    ? BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xFF3B82F6),
+                                            Color(0xFF1D4ED8),
+                                          ],
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.blue.withValues(
+                                              alpha: 0.25,
+                                            ),
+                                            blurRadius: 6,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      )
+                                    : BoxDecoration(
+                                        color: isToday
+                                            ? Colors.white.withValues(
+                                                alpha: 0.08,
+                                              )
+                                            : Colors.white.withValues(
+                                                alpha: 0.02,
+                                              ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isToday
+                                              ? AppTheme.neonGreen.withValues(
+                                                  alpha: 0.3,
+                                                )
+                                              : Colors.white.withValues(
+                                                  alpha: 0.05,
+                                                ),
+                                          width: 1,
+                                        ),
+                                      ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      shortWeekdays[colIndex],
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isToday
+                                                  ? AppTheme.neonGreen
+                                                  : Colors.white.withValues(
+                                                      alpha: 0.5,
+                                                    )),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${dayDate.day}',
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isToday
+                                                  ? AppTheme.neonGreen
+                                                  : Colors.white),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      width: 5,
+                                      height: 5,
+                                      decoration: BoxDecoration(
+                                        color: isCompleted
+                                            ? AppTheme.neonGreen
+                                            : (isSelected
+                                                  ? Colors.white54
+                                                  : Colors.transparent),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    NutritionPanel(
+                      weight: _weight,
+                      height: _height,
+                      age: _age,
+                      selectedGoal: _selectedGoal,
+                      bmi: bmi,
+                      selectedDayDate: selectedDayDate,
+                      todayMealLogs: _todayMealLogs,
+                      gender: _gender,
+                      onMealLogsUpdated: (updatedLogs) {
+                        setState(() {
+                          _todayMealLogs = updatedLogs;
+                        });
+                        _saveMealLogsForDay(selectedDayDate);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Theme(
+                          data: Theme.of(
+                            context,
+                          ).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            key: const PageStorageKey<String>('workout_panel'),
+                            initiallyExpanded: true,
+                            title: Row(
+                              children: [
+                                const Icon(
+                                  Icons.fitness_center,
+                                  color: AppTheme.neonGreen,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Text(
+                                    '💪 LUYỆN TẬP & BÀI TẬP ĐỀ XUẤT',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.neonGreen,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Builder(
+                              builder: (context) {
+                                final List<dynamic> currentExercises =
+                                    selectedDayData['exercises']
+                                        as List<dynamic>? ??
+                                    [];
+                                final bool isRest =
+                                    selectedDayData['isRest'] as bool? ?? false;
+
+                                if (isRest) {
+                                  return const Text(
+                                    'Hôm nay: Nghỉ ngơi & phục hồi',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  );
+                                }
+
+                                int totalExercises = currentExercises.length;
+                                int completedCount = 0;
+                                for (var rec in currentExercises) {
+                                  final ExerciseType type =
+                                      rec['type'] as ExerciseType;
+                                  if (_isExerciseCompletedForDay(
+                                    type,
+                                    selectedDayDate,
+                                  )) {
+                                    completedCount++;
+                                  }
+                                }
+                                return Text(
+                                  'Đã tập: $completedCount / $totalExercises bài (${totalExercises > 0 ? ((completedCount / totalExercises) * 100).toStringAsFixed(0) : 0}%)',
+                                  style: TextStyle(
+                                    color:
+                                        completedCount == totalExercises &&
+                                            totalExercises > 0
+                                        ? AppTheme.neonGreen
+                                        : Colors.white70,
+                                    fontSize: 11,
+                                    fontWeight:
+                                        completedCount == totalExercises &&
+                                            totalExercises > 0
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                );
+                              },
+                            ),
+                            childrenPadding: const EdgeInsets.all(16),
+                            expandedCrossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              if (selectedDayData['title'] != null) ...[
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black12,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'TIÊU ĐIỂM HÔM NAY:',
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          selectedDayData['title']
+                                              .toString()
+                                              .toUpperCase(),
+                                          style: const TextStyle(
+                                            color: AppTheme.neonGreen,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                          textAlign: TextAlign.end,
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              Builder(
+                                builder: (context) {
+                                  final bool isRest =
+                                      selectedDayData['isRest'] as bool? ??
+                                      false;
+                                  final bool isToday =
+                                      selectedDayIndex == safeTodayIndex;
+
+                                  if (isRest) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black12,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white10,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              const Icon(
+                                                Icons.spa,
+                                                color: AppTheme.neonBlue,
+                                                size: 36,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              const Text(
+                                                'NGÀY NGHỈ NGƠI & PHỤC HỒI',
+                                                style: TextStyle(
+                                                  color: AppTheme.neonBlue,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                selectedDayData['reason']
+                                                    .toString(),
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  color: Colors.white70,
+                                                  fontSize: 11,
+                                                  height: 1.4,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        if (isToday&&!isRest) ...[
+                                          _buildExerciseGroupSelector(
+                                            bmi,
+                                            _age,
+                                            selectedDayDate,
+                                          ),
+                                          if (_isCustomSelectionActive &&
+                                              _customSelectedExercises
+                                                  .isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            const Divider(
+                                              color: Colors.white10,
+                                              height: 20,
+                                            ),
+                                            ..._buildCustomExerciseList(
+                                              scientificTargets,
+                                            ).map((rec) {
+                                              return _buildExerciseCard(
+                                                rec as Map<String, dynamic>,
+                                                scientificTargets,
+                                                caloriesPerExercise,
+                                                true,
+                                                selectedDayDate,
+                                                bmi,
+                                                _age,
+                                              );
+                                            }),
+                                          ],
+                                        ],
+                                      ],
+                                    );
+                                  }
+
+                                  List<dynamic> currentExercises =
+                                      selectedDayData['exercises']
+                                          as List<dynamic>? ??
+                                      [];
+
+                                  if (currentExercises.isEmpty) {
+                                    if (isToday&&!isRest) {
+                                      return _buildExerciseGroupSelector(
+                                        bmi,
+                                        _age,
+                                        selectedDayDate,
+                                      );
+                                    }
+                                    return const SizedBox.shrink();
+                                  }
+
+                                  int totalExercises = currentExercises.length;
+                                  int completedCount = 0;
+                                  final List<String> completedList = [];
+                                  final List<String> missingList = [];
+
+                                  for (var rec in currentExercises) {
+                                    final ExerciseType type =
+                                        rec['type'] as ExerciseType;
+                                    final originalExercise = ExerciseDetail
+                                        .defaultExercises
+                                        .firstWhere((e) => e.type == type);
+                                    final bool isCompleted =
+                                        _isExerciseCompletedForDay(
+                                          type,
+                                          selectedDayDate,
+                                        );
+                                    if (isCompleted) {
+                                      completedCount++;
+                                      completedList.add(originalExercise.name);
+                                    } else {
+                                      missingList.add(originalExercise.name);
+                                    }
+                                  }
+
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (isToday&&!isRest) ...[
+                                        _buildExerciseGroupSelector(
+                                          bmi,
+                                          _age,
+                                          selectedDayDate,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Divider(
+                                          color: Colors.white10,
+                                          height: 1,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        if (!_isCustomSelectionActive)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 10,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.auto_awesome,
+                                                  size: 13,
+                                                  color: AppTheme.neonGreen
+                                                      .withValues(alpha: 0.8),
+                                                ),
+                                                const SizedBox(width: 5),
+                                                Text(
+                                                  'GIÁO ÁN AI GỢI Ý (mặc định)',
+                                                  style: TextStyle(
+                                                    color: AppTheme.neonGreen
+                                                        .withValues(alpha: 0.8),
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    letterSpacing: 0.8,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'TIẾN ĐỘ THỰC HIỆN',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            '$completedCount/$totalExercises bài',
+                                            style: const TextStyle(
+                                              color: AppTheme.neonGreen,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: LinearProgressIndicator(
+                                          value: (totalExercises > 0)
+                                              ? (completedCount /
+                                                    totalExercises)
+                                              : 0,
+                                          backgroundColor: Colors.white10,
+                                          valueColor:
+                                              const AlwaysStoppedAnimation<
+                                                Color
+                                              >(AppTheme.neonGreen),
+                                          minHeight: 6,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              completedCount == totalExercises
+                                              ? AppTheme.neonGreen.withValues(
+                                                  alpha: 0.05,
+                                                )
+                                              : AppTheme.errorRed.withValues(
+                                                  alpha: 0.05,
+                                                ),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          border: Border.all(
+                                            color:
+                                                completedCount == totalExercises
+                                                ? AppTheme.neonGreen.withValues(
+                                                    alpha: 0.15,
+                                                  )
+                                                : AppTheme.errorRed.withValues(
+                                                    alpha: 0.15,
+                                                  ),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              completedCount == totalExercises
+                                                  ? Icons.stars_rounded
+                                                  : Icons.warning_amber_rounded,
+                                              color:
+                                                  completedCount ==
+                                                      totalExercises
+                                                  ? AppTheme.neonGreen
+                                                  : AppTheme.errorRed,
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                completedCount == totalExercises
+                                                    ? 'Tuyệt vời! Bạn đã hoàn thành toàn bộ bài tập của ngày này!'
+                                                    : 'Bạn đang thiếu bài tập: ${missingList.join(", ")}.',
+                                                style: TextStyle(
+                                                  color:
+                                                      completedCount ==
+                                                          totalExercises
+                                                      ? AppTheme.neonGreen
+                                                      : AppTheme.errorRed,
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Divider(
+                                        color: Colors.white10,
+                                        height: 24,
+                                      ),
+                                      ...currentExercises.map((rec) {
+                                        return _buildExerciseCard(
+                                          rec as Map<String, dynamic>,
+                                          scientificTargets,
+                                          caloriesPerExercise,
+                                          selectedDayIndex == safeTodayIndex,
+                                          selectedDayDate,
+                                          bmi,
+                                          _age,
+                                        );
+                                      }),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // Thẻ bài tập đề xuất dùng chung
   Widget _buildExerciseCard(
     Map<String, dynamic> rec,
     Map<ExerciseType, int> scientificTargets,
     double caloriesPerExercise,
     bool allowWorkoutAction,
     DateTime selectedDayDate,
+    double bmi,
+    int age,
   ) {
     final ExerciseType type = rec['type'] as ExerciseType;
     final String reason = rec['reason'] as String;
 
-    // Tính toán số lượng rep mục tiêu thực tế dựa trên khoa học (để đè lên mục tiêu tĩnh ban đầu)
     final int recommendedTarget =
         scientificTargets[type] ?? (rec['target'] as int? ?? 0);
     final int currentTarget = _selectedTargets[type] ?? recommendedTarget;
@@ -2203,7 +2852,11 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       type,
       selectedDayDate,
     );
-
+    final bool isBlocked = _isExerciseBlocked(type, bmi, age);
+    final bool isRepeated = _isExerciseDoneOnDate(
+      type,
+      selectedDayDate.subtract(const Duration(days: 1)),
+    );
     final originalExercise = ExerciseDetail.defaultExercises.firstWhere(
       (e) => e.type == type,
     );
@@ -2211,10 +2864,20 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassDecoration(
-        color: AppTheme.cardBackground.withValues(alpha: 0.3),
-        borderRadius: 20,
-      ),
+      decoration:
+          AppTheme.glassDecoration(
+            color: isBlocked
+                ? AppTheme.errorRed.withValues(alpha: 0.1)
+                : AppTheme.cardBackground.withValues(alpha: 0.3),
+            borderRadius: 20,
+          ).copyWith(
+            border: Border.all(
+              color: isBlocked
+                  ? AppTheme.errorRed.withValues(alpha: 0.35)
+                  : Colors.white10,
+              width: 1,
+            ),
+          ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2269,10 +2932,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               },
               child: Row(
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Text(
                       'CHỌN SỐ LƯỢNG KHÁC:',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppTheme.neonGreen,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
@@ -2320,6 +2983,70 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               ),
               const SizedBox(height: 10),
             ],
+          ],
+          if (isBlocked) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.errorRed.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _getBlockedReason(type, bmi, age),
+                      style: const TextStyle(
+                        color: AppTheme.errorRed,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  if (_heavyExercises.contains(type.name)) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => _removeHeavyExercise(type),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.errorRed.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: AppTheme.errorRed,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ] else if (isRepeated) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                '⚠️ Bài này đã được tập hôm trước nên đã bị loại khỏi lựa chọn hôm nay.',
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                ),
+              ),
+            ),
           ],
           Text(
             reason,
@@ -2442,7 +3169,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                     return ElevatedButton.icon(
                       onPressed: () async {
                         final navigatorContext = context;
-
                         final finalTargetCount = isDraftForThisExercise
                             ? (_todayDraftWorkout!['targetCount'] as num)
                                   .toInt()
@@ -2477,14 +3203,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                         await _loadHeavyExercises();
                         if ((result == true || result == 'complete') &&
                             mounted) {
-                          // Thực hiện cập nhật trạng thái UI cục bộ (nếu cần offline)
                           _toggleExerciseCompletedForDay(
                             type,
                             selectedDayDate,
                             finalTargetCount,
                             isManual: false,
                           );
-                          // Đồng thời tải lại dữ liệu chuẩn xác từ Database về
                           await _loadCompletedExercisesForDay(selectedDayDate);
                         }
                       },
@@ -2524,127 +3248,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   bool isGoalAllowedForBmi(String goal, double bmi) {
-    if (bmi >= 25.0) {
-      return goal == 'lose';
-    } else if (bmi < 18.5) {
-      return goal == 'build';
-    } else {
-      return goal == 'maintain' || goal == 'build';
-    }
-  }
-
-  Widget _buildGoalChip(String goalKey, String label) {
-    double bmi = _height > 0
-        ? _weight / ((_height / 100) * (_height / 100))
-        : 0.0;
-
-    final isAllowed = isGoalAllowedForBmi(goalKey, bmi);
-    final isSelected = _selectedGoal == goalKey;
-
-    return GestureDetector(
-      onTap: isAllowed
-          ? () => _updateGoal(goalKey)
-          : () {
-              String reason = '';
-              if (bmi >= 25.0) {
-                reason =
-                    'Mục tiêu này bị khóa. Thể trạng Thừa cân/Béo phì cần ưu tiên Giảm cân để bảo vệ khớp gối!';
-              } else if (bmi < 18.5) {
-                reason =
-                    'Mục tiêu này bị khóa. Thể trạng Thiếu cân cần ưu tiên Tăng cơ để cải thiện thể hình!';
-              } else {
-                reason =
-                    'BMI Cân đối không cần giảm cân. Hãy chọn Giữ dáng hoặc Tăng cơ!';
-              }
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('🔒 $reason'),
-                  backgroundColor: Colors.grey[900],
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: isSelected
-            ? BoxDecoration(
-                gradient: LinearGradient(
-                  colors: goalKey == 'lose'
-                      ? const [
-                          Color(0xFFFF6B6B),
-                          Color(0xFFFF4500),
-                        ] // Đỏ cam – giảm cân
-                      : goalKey == 'maintain'
-                      ? const [
-                          Color(0xFF60A5FA),
-                          Color(0xFF3B82F6),
-                        ] // Xanh dương – giữ dáng
-                      : const [
-                          Color(0xFF34D399),
-                          Color(0xFF059669),
-                        ], // Xanh lá – tăng cơ
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (goalKey == 'lose'
-                                ? const Color(0xFFFF6B6B)
-                                : goalKey == 'maintain'
-                                ? const Color(0xFF3B82F6)
-                                : const Color(0xFF34D399))
-                            .withValues(alpha: 0.35),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              )
-            : BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-              ),
-        child: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isAllowed) ...[
-                Icon(
-                  Icons.lock_outline,
-                  size: 13,
-                  color: Colors.white.withValues(alpha: 0.25),
-                ),
-                const SizedBox(width: 4),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: isSelected
-                        ? Colors.white
-                        : (isAllowed
-                              ? Colors.white.withValues(alpha: 0.6)
-                              : Colors.white.withValues(alpha: 0.2)),
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                    fontSize: 12.5,
-                    decoration: isAllowed
-                        ? TextDecoration.none
-                        : TextDecoration.lineThrough,
-                    decorationColor: Colors.white.withValues(alpha: 0.3),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    if (bmi < 18.5) return goal == 'build';
+    if (bmi >= 25.0) return goal == 'lose';
+    return true;
   }
 }

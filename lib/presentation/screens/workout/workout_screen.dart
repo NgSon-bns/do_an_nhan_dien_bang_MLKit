@@ -464,7 +464,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             if (mounted) {
               setState(() {
                 _session.isPostureCorrect = true;
-                if (widget.exercise.type == ExerciseType.pushUp ||
+                if (widget.exercise.type == ExerciseType.push_up ||
                     widget.exercise.type == ExerciseType.plank) {
                   _session.feedbackMessage =
                       'Hãy điều chỉnh tư thế để camera thấy rõ từ đầu đến chân!';
@@ -669,14 +669,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     // 1. Đối với Squat, Jumping Jack và Walking Lunge (bắt buộc trực diện, đủ 2 bên trái & phải)
     if (type == ExerciseType.squat ||
-        type == ExerciseType.jumpingJack ||
-        type == ExerciseType.walkingLunge) {
+        type == ExerciseType.jumping_jack ||
+        type == ExerciseType.walking_lunge) {
       final standardJoints = [
         PoseLandmarkType.leftShoulder,
         PoseLandmarkType.rightShoulder,
         PoseLandmarkType.leftHip,
         PoseLandmarkType.rightHip,
-        if (type == ExerciseType.jumpingJack) ...[
+        if (type == ExerciseType.jumping_jack) ...[
           PoseLandmarkType.leftElbow,
           PoseLandmarkType.rightElbow,
           PoseLandmarkType.leftWrist,
@@ -711,7 +711,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final leftSideStandard = [
       PoseLandmarkType.leftShoulder,
       PoseLandmarkType.leftHip,
-      if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
+      if (type == ExerciseType.push_up || type == ExerciseType.plank) ...[
         PoseLandmarkType.leftElbow,
         PoseLandmarkType.leftWrist,
       ],
@@ -724,7 +724,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final rightSideStandard = [
       PoseLandmarkType.rightShoulder,
       PoseLandmarkType.rightHip,
-      if (type == ExerciseType.pushUp || type == ExerciseType.plank) ...[
+      if (type == ExerciseType.push_up || type == ExerciseType.plank) ...[
         PoseLandmarkType.rightElbow,
         PoseLandmarkType.rightWrist,
       ],
@@ -1460,12 +1460,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
       if (changeGoal == true) {
         try {
+          final userId = _isSupabaseInitialized
+              ? Supabase.instance.client.auth.currentUser?.id
+              : null;
+          final String prefsKey = 'heavy_exercises_${userId ?? 'guest'}';
+
           final prefs = await SharedPreferences.getInstance();
-          final List<String> heavyList = prefs.getStringList('heavy_exercises') ?? [];
+          final List<String> heavyList = prefs.getStringList(prefsKey) ?? [];
           final String exTypeName = widget.exercise.type.name;
           if (!heavyList.contains(exTypeName)) {
             heavyList.add(exTypeName);
-            await prefs.setStringList('heavy_exercises', heavyList);
+            // 1. Lưu cache cục bộ (gắn theo user hiện tại) để hoạt động cả khi offline
+            await prefs.setStringList(prefsKey, heavyList);
+
+            // 2. Đồng bộ lên Database (bảng ho_so_nguoi_dung, cột bai_tap_qua_nang)
+            if (userId != null) {
+              try {
+                await Supabase.instance.client
+                    .from('ho_so_nguoi_dung')
+                    .update({'bai_tap_qua_nang': heavyList})
+                    .eq('ma_nguoi_dung', userId);
+              } catch (dbError) {
+                debugPrint('Lỗi đồng bộ bài tập quá nặng lên CSDL: $dbError');
+              }
+            }
           }
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(

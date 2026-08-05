@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ExerciseType { pushUp, squat, plank, jumpingJack, burpee, walkingLunge }
+enum ExerciseType { push_up, squat, plank, jumping_jack, burpee, walking_lunge }
 
 class ExerciseDetail {
   final ExerciseType type;
@@ -19,7 +19,7 @@ class ExerciseDetail {
   final int estimatedDurationSeconds;
   final List<String> benefits;
 
-  static const List<int> targetOptions = [25,50, 75, 100,125,150];
+  static const List<int> targetOptions = [25, 50, 75, 100, 125, 150];
 
   const ExerciseDetail({
     required this.type,
@@ -65,7 +65,7 @@ class ExerciseDetail {
   static List<ExerciseDetail> get defaultExercises {
     return const [
       ExerciseDetail(
-        type: ExerciseType.pushUp,
+        type: ExerciseType.push_up,
         name: 'Chống Đẩy (Push-Up)',
         description: 'Bài tập phát triển cơ ngực, vai và bắp tay sau.',
         icon: Icons.fitness_center,
@@ -74,7 +74,7 @@ class ExerciseDetail {
         difficulty: 'Trung bình',
         caloriesPerMin: 8.5,
         category: 'Strength',
-        focusArea: 'Ngực - Vai - Tay',
+        focusArea: 'Thân trên',
         equipment: 'Không cần dụng cụ',
         isAiEnabled: true,
         estimatedDurationSeconds: 45,
@@ -96,7 +96,7 @@ class ExerciseDetail {
         difficulty: 'Dễ',
         caloriesPerMin: 7.0,
         category: 'Strength',
-        focusArea: 'Đùi - Mông',
+        focusArea: 'Thân dưới',
         equipment: 'Không cần dụng cụ',
         isAiEnabled: true,
         estimatedDurationSeconds: 40,
@@ -118,7 +118,7 @@ class ExerciseDetail {
         difficulty: 'Trung bình',
         caloriesPerMin: 5.0,
         category: 'Core',
-        focusArea: 'Bụng - Lưng',
+        focusArea: 'Thân trên',
         equipment: 'Không cần dụng cụ',
         isAiEnabled: true,
         estimatedDurationSeconds: 60,
@@ -131,7 +131,7 @@ class ExerciseDetail {
         ],
       ),
       ExerciseDetail(
-        type: ExerciseType.jumpingJack,
+        type: ExerciseType.jumping_jack,
         name: 'Jumping Jack',
         description: 'Bài tập toàn thân cardio đốt cháy calo cực kỳ hiệu quả.',
         icon: Icons.directions_run,
@@ -177,7 +177,7 @@ class ExerciseDetail {
         ],
       ),
       ExerciseDetail(
-        type: ExerciseType.walkingLunge,
+        type: ExerciseType.walking_lunge,
         name: 'Walking Lunge',
         description:
             'Bài tập bước gập gối di chuyển phát triển cơ đùi và cơ mông.',
@@ -187,7 +187,7 @@ class ExerciseDetail {
         difficulty: 'Trung bình',
         caloriesPerMin: 8.0,
         category: 'Strength',
-        focusArea: 'Đùi - Mông - Cân bằng',
+        focusArea: 'Thân dưới',
         equipment: 'Không cần dụng cụ',
         isAiEnabled: true,
         estimatedDurationSeconds: 45,

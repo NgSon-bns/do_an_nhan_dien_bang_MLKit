@@ -573,9 +573,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             children: _recentWorkouts.map((row) {
                               final String exerciseId =
                                   row['exercise_id'] as String? ?? '';
-                              final parts = exerciseId.split('::');
-                              final String type = parts.isNotEmpty
-                                  ? parts[0]
+                          
+                              final String type = exerciseId.isNotEmpty
+                                  ? exerciseId
                                   : '';
 
                               // Dịch tên bài tập
@@ -587,7 +587,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 displayName = 'Điểm danh hàng ngày';
                                 displayIcon = Icons.today;
                                 iconColor = Colors.orangeAccent;
-                              } else if (type == 'pushUp') {
+                              } else if (type == 'push_up') {
                                 displayName = 'Chống đẩy (Push-up)';
                                 displayIcon = Icons.fitness_center;
                               } else if (type == 'squat') {
@@ -600,10 +600,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               } else if (type == 'burpee') {
                                 displayName = 'Burpee liên hoàn';
                                 displayIcon = Icons.directions_run;
-                              } else if (type == 'walkingLunge ') {
+                              } else if (type == 'walking_lunge') {
                                 displayName = 'Bước chùng chân (Walking Lunge)';
                                 displayIcon = Icons.directions_walk;
-                              } else if (type == 'jumpingJack') {
+                              } else if (type == 'jumping_jack') {
                                 displayName = 'Nhảy vung tay (Jumping Jack)';
                                 displayIcon = Icons.fitness_center;
                               }

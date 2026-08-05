@@ -32,19 +32,18 @@ class DatabaseService {
     if (user == null) return;
 
     try {
-      final exerciseIdValue =
-          sourceTag != null && sourceTag.startsWith('recommended:')
-          ? '$exerciseType::$repsCount::recommended'
-          : '$exerciseType::$repsCount::custom';
-
       await _client.from('lich_su_tap_luyen').insert({
         'ma_nguoi_dung': user.id,
-        'ma_bai_tap_rieng': exerciseIdValue,
+        'ma_bai_tap_rieng': exerciseType,
         'so_lan_tap': repsCount,
         'thoi_gian_tap': durationSeconds,
         'calo_tieu_hao': caloriesBurned,
         'so_lan_sai_tu_the': incorrectPostures,
         'danh_sach_anh_sai': danhSachAnhSai,
+        'loai_bai_tap':
+            sourceTag != null && sourceTag.startsWith('recommended:')
+            ? 'recommended'
+            : 'custom',
       });
     } catch (e) {
       debugPrint('Lỗi đồng bộ lịch sử tập: $e');
@@ -61,7 +60,9 @@ class DatabaseService {
     try {
       final List<dynamic> data = await _client
           .from('lich_su_tap_luyen')
-          .select('calories_burned:calo_tieu_hao, duration_seconds:thoi_gian_tap')
+          .select(
+            'calories_burned:calo_tieu_hao, duration_seconds:thoi_gian_tap',
+          )
           .eq('ma_nguoi_dung', user.id);
 
       double totalCalories = 0.0;
@@ -92,29 +93,40 @@ class DatabaseService {
     if (user == null) return [];
 
     try {
-      final startQuery = DateTime.utc(day.year, day.month, day.day).subtract(const Duration(days: 1));
-      final endQuery = DateTime.utc(day.year, day.month, day.day).add(const Duration(days: 2));
+      final startQuery = DateTime.utc(
+        day.year,
+        day.month,
+        day.day,
+      ).subtract(const Duration(days: 1));
+      final endQuery = DateTime.utc(
+        day.year,
+        day.month,
+        day.day,
+      ).add(const Duration(days: 2));
 
       final List<dynamic> data = await _client
           .from('lich_su_tap_luyen')
-          .select('ma_bai_tap_rieng, so_lan_tap, ngay_tao')
+          .select('ma_bai_tap_rieng, so_lan_tap, ngay_tao, loai_bai_tap')
           .eq('ma_nguoi_dung', user.id)
           .gte('ngay_tao', startQuery.toIso8601String())
           .lt('ngay_tao', endQuery.toIso8601String());
 
-      final String targetDateStr = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+      final String targetDateStr =
+          '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
       final List<Map<String, dynamic>> filteredList = [];
 
       for (var row in data) {
         final String? createdAtStr = row['ngay_tao'] as String?;
         if (createdAtStr != null) {
           final DateTime localDateTime = DateTime.parse(createdAtStr).toLocal();
-          final String localDateStr = '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
-          
+          final String localDateStr =
+              '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
+
           if (localDateStr == targetDateStr) {
             filteredList.add({
               'exercise_id': (row['ma_bai_tap_rieng'] as String?) ?? '',
               'reps_count': (row['so_lan_tap'] as num?)?.toInt() ?? 0,
+              'source_tag': (row['loai_bai_tap'] as String?) ?? '',
             });
           }
         }
@@ -143,7 +155,9 @@ class DatabaseService {
     try {
       final List<dynamic> data = await _client
           .from('lich_su_tap_luyen')
-          .select('exercise_id:ma_bai_tap_rieng, reps_count:so_lan_tap, duration_seconds:thoi_gian_tap, calories_burned:calo_tieu_hao, incorrect_postures:so_lan_sai_tu_the, created_at:ngay_tao, danh_sach_anh_sai')
+          .select(
+            'exercise_id:ma_bai_tap_rieng, reps_count:so_lan_tap, duration_seconds:thoi_gian_tap, calories_burned:calo_tieu_hao, incorrect_postures:so_lan_sai_tu_the, created_at:ngay_tao, danh_sach_anh_sai,loai_bai_tap',
+          )
           .eq('ma_nguoi_dung', user.id)
           .order('ngay_tao', ascending: false)
           .limit(limit);

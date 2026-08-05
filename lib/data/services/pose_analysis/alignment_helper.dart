@@ -95,7 +95,7 @@ class AlignmentHelper {
   /// Xác định xem bài tập này dùng khung đứng hay khung ngang
   static bool isHorizontalLayout(ExerciseType exerciseType) {
     // Plank và Push-Up là các bài nằm ngang trên sàn nhà
-    if (exerciseType == ExerciseType.plank || exerciseType == ExerciseType.pushUp) {
+    if (exerciseType == ExerciseType.plank || exerciseType == ExerciseType.push_up) {
       return true;
     }
     return false;
@@ -149,7 +149,7 @@ class AlignmentHelper {
     final double boxTop;
 
     if (isHorizontal) {
-      // Khung ngang cho Plank/Pushup
+      // Khung ngang cho Plank/push_up
       boxWidth = screenSize.width * 0.90;
       boxHeight = screenSize.height * 0.45;
       boxLeft = (screenSize.width - boxWidth) / 2;
