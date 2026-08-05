@@ -86,6 +86,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   // Lưu trữ ảnh tập sai và trạng thái chụp hình
   final List<File> _capturedErrorImages = [];
   bool _isCapturingError = false;
+  final Set<String> _capturedErrorTypes = {};
 
   @override
   void initState() {
@@ -539,23 +540,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _captureIncorrectPose(Pose pose, String feedbackMessage) async {
-    if (_isCapturingError || _capturedErrorImages.length >= 3) return;
+    if (_isCapturingError || _capturedErrorTypes.contains(feedbackMessage)) return;
+    // Giới hạn tối đa chụp 3 nhóm lỗi khác nhau để tránh tràn bộ nhớ
+    if (_capturedErrorTypes.length >= 3) return;
+
+    _capturedErrorTypes.add(feedbackMessage);
     _isCapturingError = true;
 
     try {
       // 1. Chụp ảnh thứ nhất ngay lập tức (Bắt đầu sai)
       await _executeSingleCapture(pose, '$feedbackMessage (Bắt đầu sai)');
 
-      // 2. Chụp ảnh thứ hai sau 600ms nếu vẫn đang ở tư thế sai và chưa đủ 3 ảnh
+      // 2. Chụp ảnh thứ hai sau 600ms nếu vẫn đang ở tư thế sai
       await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted && !_session.isPostureCorrect && _capturedErrorImages.length < 3) {
+      if (mounted && !_session.isPostureCorrect) {
         final currentPose = _poses.isNotEmpty ? _poses.first : pose;
         await _executeSingleCapture(currentPose, '$feedbackMessage (Giữa nhịp)');
       }
 
-      // 3. Chụp ảnh thứ ba sau 600ms nữa nếu vẫn đang ở tư thế sai và chưa đủ 3 ảnh
+      // 3. Chụp ảnh thứ ba sau 600ms nữa nếu vẫn đang ở tư thế sai
       await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted && !_session.isPostureCorrect && _capturedErrorImages.length < 3) {
+      if (mounted && !_session.isPostureCorrect) {
         final currentPose = _poses.isNotEmpty ? _poses.first : pose;
         await _executeSingleCapture(currentPose, '$feedbackMessage (Cuối nhịp)');
       }
