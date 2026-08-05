@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:demo/core/theme/app_theme.dart';
 import 'package:demo/domain/recommended_meal.dart';
 import 'package:demo/data/services/nutrition_service.dart';
-import 'package:demo/data/services/auth_service.dart';
-import 'package:demo/domain/allergens_dataset.dart';
 class NutritionPanel extends StatefulWidget {
   final double weight;
   final double height;
@@ -35,7 +32,6 @@ class NutritionPanel extends StatefulWidget {
 
 class _NutritionPanelState extends State<NutritionPanel> {
   bool _isMealPlanExpanded = false;
-  final AuthService _authService = AuthService();
   
   
 
@@ -48,18 +44,11 @@ class _NutritionPanelState extends State<NutritionPanel> {
   // Lưu trữ chỉ số (index) xoay vòng đổi món của từng buổi
   final Map<String, int> _mealSwapIndexes = {};
 
-  // --- BỘ LỌC DỊ ỨNG ĐƯỢC ĐỒNG BỘ VỚI SUPABASE ---
-  List<String> _excludedIngredients = [];
-  bool _isLoadingAllergens = true;
-
   // --- BỘ LỌC NGUYÊN LIỆU ĐỘNG TRÊN GIAO DIỆN ---
- 
   String _activeIngredientQuery = "";
   bool _isExcludeMode =
       true; // true: Lọc bỏ món chứa từ khóa | false: Chỉ hiện món chứa từ khóa
 
-  // Controller để thêm nguyên liệu dị ứng lên Supabase
-  late  TextEditingController _allergyInputController;
   late  TextEditingController _ingredientFilterController;
   @override
   void initState() {
@@ -67,9 +56,6 @@ class _NutritionPanelState extends State<NutritionPanel> {
     // Bước 1: Khởi tạo danh sách món ăn mặc định ngay lập tức để tránh danh sách bị rỗng gây crash khi build lần đầu
     _calculateTargetCal();
     _generateDefaultMeals();
-    // Bước 2: Bắt đầu tải dữ liệu bộ lọc dị ứng từ Supabase dưới nền
-    _loadExcludedIngredientsFromSupabase();
-    _allergyInputController = TextEditingController();
     _ingredientFilterController =
       TextEditingController();
   }
@@ -77,7 +63,6 @@ class _NutritionPanelState extends State<NutritionPanel> {
   @override
   void dispose() {
     _ingredientFilterController.dispose();
-    _allergyInputController.dispose();
     super.dispose();
   }
 
@@ -98,10 +83,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
         dayOfWeek,
         _targetCal,
       );
-      _currentDayMeals = originalMeals.map((meal) {
-        if (_isAllergic(meal)) return _getAlternativeMeal(meal.key, _targetCal) ?? meal;
-        return meal;
-      }).toList();
+      _currentDayMeals = originalMeals;
     }
   }
 
@@ -140,167 +122,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     );
   }
 
-  // --- TRUY XUẤT DỮ LIỆU TỪ SUPABASE ---
-  Future<void> _loadExcludedIngredientsFromSupabase() async {
-    // Không gọi setState() ở đây — _isLoadingAllergens đã được khởi tạo = true, và
-    // gọi setState trong initState có thể gây lỗi '_elements.contains(element)'
-    if (!mounted) return;
-
-    List<String> loadedList = [];
-    try {
-      final profile = await _authService.getCurrentUserProfile();
-      // Kiểm tra mounted sau await — widget có thể đã bị dispose trong lúc chờ
-      if (!mounted) return;
-
-      if (profile != null) {
-        // Xử lý dữ liệu lấy về một cách an toàn đề phòng sai kiểu dữ liệu (Cast Error)
-        final rawIngredients = profile['ExcludedIngredients'];
-
-        if (rawIngredients is List) {
-          loadedList = rawIngredients.map((e) => e.toString()).toList();
-        } else if (rawIngredients is String) {
-          if (rawIngredients.startsWith('{') && rawIngredients.endsWith('}')) {
-            loadedList = rawIngredients
-                .substring(1, rawIngredients.length - 1)
-                .split(',')
-                .where((element) => element.trim().isNotEmpty)
-                .toList();
-          } else if (rawIngredients.isNotEmpty) {
-            loadedList = [rawIngredients];
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint("Lỗi khi tải bộ lọc dị ứng: $e");
-    } finally {
-      if (!mounted) return;
-
-      // Tính toán thực đơn TRƯỚC khi gọi setState — tránh gọi setState nhiều lần liên tiếp
-      // (nguyên nhân trực tiếp gây lỗi '_elements.contains(element)')
-      _calculateTargetCal();
-      final int dayOfWeek = (widget.selectedDayDate.weekday - 1).clamp(0, 6);
-      final List<RecommendedMeal> originalMeals = NutritionService.getRecommendedMeals(
-        widget.bmi,
-        dayOfWeek,
-        _targetCal,
-      );
-      // Tạm thời dùng loadedList vừa tải để lọc (vì _excludedIngredients chưa được cập nhật)
-      final List<String> validExclusions =
-          loadedList.where((ex) => ex.trim().isNotEmpty).toList();
-      final List<RecommendedMeal> newMeals = originalMeals.map((meal) {
-        final bool allergic = meal.ingredients.isNotEmpty &&
-            validExclusions.isNotEmpty &&
-            meal.ingredients.any(
-              (ing) => validExclusions.any(
-                (ex) => ing.toLowerCase().contains(ex.toLowerCase()),
-              ),
-            );
-        if (allergic) {
-          return _getAlternativeMeal(meal.key, _targetCal) ?? meal;
-        }
-        return meal;
-      }).toList();
-
-      // Một lần setState duy nhất — cập nhật toàn bộ trạng thái cùng lúc
-      setState(() {
-        _excludedIngredients = loadedList;
-        _currentDayMeals = newMeals;
-        _isLoadingAllergens = false;
-      });
-    }
-  }
-
-  // --- CẬP NHẬT DỮ LIỆU LÊN SUPABASE ---
-  Future<void> _updateExcludedIngredientsToSupabase(
-    List<String> newList,
-  ) async {
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-
-      // Sử dụng đồng bộ tên cột viết thường chuẩn hóa database: 'ho_so_nguoi_dung'
-      await Supabase.instance.client
-          .from('ho_so_nguoi_dung')
-          .update({'thanh_phan_di_ung': newList})
-          .eq('ma_nguoi_dung', user.id);
-
-      if (!mounted) return;
-
-      // Tính toán newMeals TRƯỚC setState — tránh gọi setState 2 lần liên tiếp
-      _calculateTargetCal();
-      final int dayOfWeek = (widget.selectedDayDate.weekday - 1).clamp(0, 6);
-      final List<RecommendedMeal> originalMeals = NutritionService.getRecommendedMeals(
-        widget.bmi, dayOfWeek, _targetCal);
-      final List<String> validExclusions =
-          newList.where((ex) => ex.trim().isNotEmpty).toList();
-      final List<RecommendedMeal> newMeals = originalMeals.map((meal) {
-        final bool allergic = meal.ingredients.isNotEmpty &&
-            validExclusions.isNotEmpty &&
-            meal.ingredients.any(
-              (ing) => validExclusions.any(
-                (ex) => ing.toLowerCase().contains(ex.toLowerCase()),
-              ),
-            );
-        if (allergic) return _getAlternativeMeal(meal.key, _targetCal) ?? meal;
-        return meal;
-      }).toList();
-
-      // Một lần setState duy nhất cho cả _excludedIngredients lẫn _currentDayMeals
-      setState(() {
-        _excludedIngredients = newList;
-        _currentDayMeals = newMeals;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Lỗi đồng bộ lên Supabase: $e'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
-    }
-  }
-
-  // Khởi tạo hoặc lọc danh sách món ăn hôm nay dựa trên danh sách dị ứng cố định từ Supabase
-  void _generateOrFilterMeals() {
-    _calculateTargetCal();
-    int dayOfWeek = (widget.selectedDayDate.weekday - 1).clamp(0, 6);
-
-    final List<RecommendedMeal> originalMeals = NutritionService.getRecommendedMeals(
-      widget.bmi,
-      dayOfWeek,
-      _targetCal,
-    );
-
-    // Tách computation ra ngoài setState — setState chỉ được làm phép gán thuần túy
-    final List<RecommendedMeal> newMeals = originalMeals.map((meal) {
-      if (_isAllergic(meal)) {
-        return _getAlternativeMeal(meal.key, _targetCal) ?? meal;
-      }
-      return meal;
-    }).toList();
-
-    if (!mounted) return;
-    setState(() {
-      _currentDayMeals = newMeals;
-    });
-  }
-
-  // Kiểm tra xem món ăn có chứa nguyên liệu bị dị ứng hay không
-  bool _isAllergic(RecommendedMeal meal) {
-    if (meal.ingredients.isEmpty) return false;
-    if (_excludedIngredients.isEmpty) return false;
-    // Lọc bỏ chuỗi rỗng để tránh .contains("") luôn trả true cho mọi nguyên liệu
-    final validExclusions = _excludedIngredients.where((ex) => ex.trim().isNotEmpty).toList();
-    if (validExclusions.isEmpty) return false;
-    return meal.ingredients.any(
-      (ing) => validExclusions.any(
-        (ex) => ing.toLowerCase().contains(ex.toLowerCase()),
-      ),
-    );
-  }
-
-  // Lấy món ăn thay thế an toàn
+  // Lấy món ăn thay thế xoay vòng
   RecommendedMeal? _getAlternativeMeal(String mealKey, double targetCal) {
     List<RecommendedMeal> alternatives = [];
 
@@ -311,7 +133,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
         targetCal,
       );
       for (var m in weekMeals) {
-        if (m.key == mealKey && !_isAllergic(m)) {
+        if (m.key == mealKey) {
           if (!alternatives.any((alt) => alt.description == m.description)) {
             alternatives.add(m);
           }
@@ -724,231 +546,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
 
-              // ================= QUẢN LÝ BỘ LỌC DỊ ỨNG (SUPABASE REALTIME) =================
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.no_food, color: AppTheme.errorRed, size: 16),
-                        SizedBox(width: 6),
-                        Text(
-                          'BỘ LỌC DỊ ỨNG / KIÊNG ĂN (CỐ ĐỊNH)',
-                          style: TextStyle(
-                            color: AppTheme.errorRed,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Thực đơn mẫu sẽ tự động thay thế các món có chứa thành phần này.',
-                      style: TextStyle(color: Colors.white54, fontSize: 10),
-                    ),
-                    const SizedBox(height: 8),
-                    
-                    // Xử lý trạng thái loading một cách độc lập và sạch sẽ
-                    if (_isLoadingAllergens)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8.0),
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppTheme.neonBlue,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                    else ...[
-                      // Row chứa TextField bắt buộc phải bọc Expanded để không bị tràn màn hình
-                      // ================= HỘP CHỌN NGUYÊN LIỆU CỐ ĐỊNH =================
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Autocomplete<String>(
-                              optionsBuilder: (TextEditingValue textEditingValue) {
-                                if (textEditingValue.text.isEmpty) {
-                                  return const Iterable<String>.empty();
-                                }
-                                return kAllergensDataset.where((String option) {
-                                  return option
-                                      .toLowerCase()
-                                      .contains(textEditingValue.text.toLowerCase());
-                                });
-                              },
-                              fieldViewBuilder: (
-                                BuildContext context,
-                                TextEditingController fieldTextEditingController,
-                                FocusNode fieldFocusNode,
-                                VoidCallback onFieldSubmitted,
-                              ) {
-                                // Đồng bộ controller nội bộ của Autocomplete với controller của bạn (nếu cần dùng xóa chữ)
-                                _allergyInputController = fieldTextEditingController;
-                                return TextField(
-                                  controller: fieldTextEditingController,
-                                  focusNode: fieldFocusNode,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'Tìm từ khóa (vd: Tôm, Sữa, Đậu phộng)...',
-                                    hintStyle: const TextStyle(
-                                      color: Colors.white30,
-                                      fontSize: 11,
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
-                                    ),
-                                    isDense: true,
-                                    enabledBorder: OutlineInputBorder(
-                                      borderSide: const BorderSide(
-                                        color: Colors.white12,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.errorRed,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                );
-                              },
-                              optionsViewBuilder: (
-                                BuildContext context,
-                                AutocompleteOnSelected<String> onSelected,
-                                Iterable<String> options,
-                              ) {
-                                return Align(
-                                  alignment: Alignment.topLeft,
-                                  child: Material(
-                                    color: const Color(0xFF1E293B), // Đồng bộ màu nền card của bạn
-                                    elevation: 4.0,
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      width: MediaQuery.of(context).size.width * 0.6, // Giới hạn chiều rộng hộp đề xuất
-                                      
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: Colors.white10),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: ListView.builder(
-                                        padding: EdgeInsets.zero,
-                                        shrinkWrap: true,
-                                        itemCount: options.length,
-                                        itemBuilder: (BuildContext context, int index) {
-                                          final String option = options.elementAt(index);
-                                          return InkWell(
-                                            onTap: () => onSelected(option),
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 10,
-                                              ),
-                                              
-                                              child: Text(
-                                                option,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                              onSelected: (String selection) {
-                                if (!_excludedIngredients.contains(selection)) {
-                                  final newList = List<String>.from(_excludedIngredients)
-                                    ..add(selection);
-                                  _updateExcludedIngredientsToSupabase(newList);
-                                }
-                                _allergyInputController.clear();
-                                FocusScope.of(context).unfocus();
-                              },
-                            ),
-                          ),
-                          
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      
-                      // Hiển thị danh sách các món bị dị ứng (InputChip)
-                      if (_excludedIngredients.isEmpty)
-                        const Text(
-                          'Chưa có bộ lọc dị ứng nào được chọn.',
-                          style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 10,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        )
-                      else
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: _excludedIngredients.map((item) {
-                            return InputChip(
-                              key: ValueKey(item),
-                              label: Text(
-                                item,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                ),
-                              ),
-                              backgroundColor: Colors.red.withOpacity(0.2),
-                              side: const BorderSide(
-                                color: Colors.redAccent,
-                                width: 0.5,
-                              ),
-                              onDeleted: () {
-                                final newList = List<String>.from(
-                                  _excludedIngredients,
-                                )..remove(item);
-                                _updateExcludedIngredientsToSupabase(newList);
-                              },
-                              deleteIcon: const Icon(
-                                Icons.close,
-                                size: 12,
-                                color: Colors.white70,
-                              ),
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 2,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                    ],
-                  ],
-                ),
-              ),
               const SizedBox(height: 16),
 
               Text(

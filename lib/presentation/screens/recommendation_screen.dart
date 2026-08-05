@@ -40,7 +40,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   final Map<ExerciseType, bool> _expandedTargetSelectors = {};
   final Map<String, Set<String>> _completedExerciseKeysByDay = {};
   List<Map<String, dynamic>> _todayMealLogs = [];
-  List<String> _heavyExercises = [];
 
   // Mảng lưu lịch trình 21 ngày đồng bộ từ Database
   List<Map<String, dynamic>> _savedSchedule = [];
@@ -68,12 +67,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     _selectedWeekIndex = 1;
     _selectedDayIndex = 7 + (DateTime.now().weekday - 1);
     _loadInitialData();
-  }
-
-  Future<void> _loadInitialData() async {
-    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
-    await _loadHeavyExercises();
-    await _loadAndSyncSchedule();
 
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
@@ -82,6 +75,11 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
+  }
+
+  Future<void> _loadInitialData() async {
+    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
+    await _loadAndSyncSchedule();
   }
 
   // Chuyển đổi qua lại giữa Enum và String để lưu Database/Prefs
@@ -304,103 +302,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  String _heavyExercisesPrefsKey() {
-    final userId = _isSupabaseInitialized
-        ? Supabase.instance.client.auth.currentUser?.id
-        : null;
-    return 'heavy_exercises_${userId ?? 'guest'}';
-  }
-
-  Future<void> _loadHeavyExercises() async {
-    if (!_isSupabaseInitialized) {
-      await _loadHeavyExercisesFromPrefs();
-      return;
-    }
-    try {
-      final client = Supabase.instance.client;
-      final userId = client.auth.currentUser?.id;
-      if (userId == null) {
-        await _loadHeavyExercisesFromPrefs();
-        return;
-      }
-      final row = await client
-          .from('ho_so_nguoi_dung')
-          .select('bai_tap_qua_nang')
-          .eq('ma_nguoi_dung', userId)
-          .maybeSingle();
-
-      final list =
-          (row?['bai_tap_qua_nang'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          [];
-
-      if (mounted) {
-        setState(() {
-          _heavyExercises = list;
-        });
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_heavyExercisesPrefsKey(), list);
-    } catch (e) {
-      debugPrint('Lỗi tải bài tập quá nặng từ CSDL: $e');
-      await _loadHeavyExercisesFromPrefs();
-    }
-  }
-
-  Future<void> _loadHeavyExercisesFromPrefs() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final list = prefs.getStringList(_heavyExercisesPrefsKey()) ?? [];
-      if (mounted) {
-        setState(() {
-          _heavyExercises = list;
-        });
-      }
-    } catch (e) {
-      debugPrint('Lỗi tải bài tập quá nặng: $e');
-    }
-  }
-
-  Future<void> _removeHeavyExercise(ExerciseType type) async {
-    final updated = List<String>.from(_heavyExercises)..remove(type.name);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_heavyExercisesPrefsKey(), updated);
-
-      if (mounted) {
-        setState(() {
-          _heavyExercises = updated;
-        });
-      }
-
-      if (_isSupabaseInitialized) {
-        final client = Supabase.instance.client;
-        final userId = client.auth.currentUser?.id;
-        if (userId != null) {
-          await client
-              .from('ho_so_nguoi_dung')
-              .update({'bai_tap_qua_nang': updated})
-              .eq('ma_nguoi_dung', userId);
-        }
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Đã bỏ chặn bài tập này'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Lỗi xóa bài tập quá nặng: $e');
-    }
-  }
 
   bool _isExerciseBlocked(ExerciseType type, double bmi, int age) {
     if (type == ExerciseType.burpee && (bmi >= 25.0 || age >= 45)) return true;
-    if (_heavyExercises.contains(type.name)) return true;
     return false;
   }
 
@@ -412,9 +316,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       if (age >= 45) {
         return '⚠️ Bị chặn: Cao tuổi (≥ 45), Burpee cường độ cao có thể gây ngã nguy hiểm';
       }
-    }
-    if (_heavyExercises.contains(type.name)) {
-      return '⚠️ Bị chặn: AI phát hiện bài này quá nặng với bạn';
     }
     return '';
   }
@@ -741,44 +642,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     );
   }
 
-  ExerciseType _getAdaptedExerciseType(ExerciseType type) {
-    ExerciseType current = type;
-    while (_heavyExercises.contains(current.name)) {
-      if (current == ExerciseType.burpee) {
-        current = ExerciseType.jumping_jack;
-      } else if (current == ExerciseType.push_up) {
-        current = ExerciseType.plank;
-      } else if (current == ExerciseType.walking_lunge) {
-        current = ExerciseType.squat;
-      } else if (current == ExerciseType.squat) {
-        current = ExerciseType.jumping_jack;
-      } else if (current == ExerciseType.jumping_jack) {
-        current = ExerciseType.plank;
-      } else {
-        break;
-      }
-    }
-    return current;
-  }
-
-  String _getAdaptedReason(
-    ExerciseType originalType,
-    ExerciseType adaptedType,
-    String originalReason,
-  ) {
-    if (originalType == adaptedType) return originalReason;
-    final adaptedEx = ExerciseDetail.defaultExercises.firstWhere(
-      (e) => e.type == adaptedType,
-    );
-    final originalEx = ExerciseDetail.defaultExercises.firstWhere(
-      (e) => e.type == originalType,
-    );
-    return 'Bài tập thay thế: Bạn tập ${originalEx.name} chưa quen nên HLV tự động chuyển sang ${adaptedEx.name} nhẹ hơn để bảo vệ cơ thể.';
-  }
-
-  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(
-    List<Map<String, dynamic>> rawSchedule,
-  ) {
+  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(List<Map<String, dynamic>> rawSchedule) {
+    // rawSchedule có 7 phần tử (Day 1 -> Day 7). Nhân bản thành 3 tuần (21 phần tử)
     final List<Map<String, dynamic>> raw21 = [];
     for (int i = 0; i < 7; i++) {
       final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
@@ -798,48 +663,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       dayCopy['weekLabel'] = 'Tuần sau';
       raw21.add(dayCopy);
     }
-
-    final List<Map<String, dynamic>> processed = [];
-    for (int index = 0; index < raw21.length; index++) {
-      final day = raw21[index];
-      final dayCopy = Map<String, dynamic>.from(day);
-      if (dayCopy['isRest'] == true) {
-        processed.add(dayCopy);
-        continue;
-      }
-      final List<dynamic> exercises = List.from(dayCopy['exercises'] as List);
-      final List<Map<String, dynamic>> newExercises = [];
-      for (int i = 0; i < exercises.length; i++) {
-        final exMap = Map<String, dynamic>.from(exercises[i] as Map);
-        ExerciseType originalType = exMap['type'] as ExerciseType;
-        ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
-
-        // Kiểm tra không trùng bài với ngày trước đó
-        if (index > 0 && processed[index - 1]['isRest'] != true) {
-          final prevExercises =
-              (processed[index - 1]['exercises'] as List?)
-                  ?.map((e) => e['type'] as ExerciseType)
-                  .toSet() ??
-              {};
-          if (prevExercises.contains(adaptedType)) {
-            adaptedType = _getAlternativeExercise(adaptedType);
-          }
-        }
-
-        if (originalType != adaptedType) {
-          exMap['type'] = adaptedType;
-          exMap['reason'] = _getAdaptedReason(
-            originalType,
-            adaptedType,
-            exMap['reason'] as String,
-          );
-        }
-        newExercises.add(exMap);
-      }
-      dayCopy['exercises'] = newExercises;
-      processed.add(dayCopy);
-    }
-    return processed;
+    
+    return raw21;
   }
 
   Future<void> _refreshTodayDraftWorkout() async {
@@ -3007,24 +2832,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                       ),
                     ),
                   ),
-                  if (_heavyExercises.contains(type.name)) ...[
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => _removeHeavyExercise(type),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.errorRed.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.close,
-                          color: AppTheme.errorRed,
-                          size: 14,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -3200,7 +3007,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             : null;
 
                         await _refreshTodayDraftWorkout();
-                        await _loadHeavyExercises();
                         if ((result == true || result == 'complete') &&
                             mounted) {
                           _toggleExerciseCompletedForDay(

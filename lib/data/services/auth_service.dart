@@ -112,7 +112,7 @@ class AuthService {
     try {
       final data = await _client
           .from('ho_so_nguoi_dung')
-          .select('ma_nguoi_dung, email, ho_ten, can_nang, chieu_cao, tuoi, gioi_tinh, muc_tieu, thanh_phan_di_ung')
+          .select('ma_nguoi_dung, email, ho_ten, can_nang, chieu_cao, tuoi, gioi_tinh, muc_tieu')
           .eq('ma_nguoi_dung', user.id)
           .maybeSingle();
       return data;

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, FileOptions;
@@ -1457,45 +1456,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ],
         ),
       );
-
       if (changeGoal == true) {
-        try {
-          final userId = _isSupabaseInitialized
-              ? Supabase.instance.client.auth.currentUser?.id
-              : null;
-          final String prefsKey = 'heavy_exercises_${userId ?? 'guest'}';
-
-          final prefs = await SharedPreferences.getInstance();
-          final List<String> heavyList = prefs.getStringList(prefsKey) ?? [];
-          final String exTypeName = widget.exercise.type.name;
-          if (!heavyList.contains(exTypeName)) {
-            heavyList.add(exTypeName);
-            // 1. Lưu cache cục bộ (gắn theo user hiện tại) để hoạt động cả khi offline
-            await prefs.setStringList(prefsKey, heavyList);
-
-            // 2. Đồng bộ lên Database (bảng ho_so_nguoi_dung, cột bai_tap_qua_nang)
-            if (userId != null) {
-              try {
-                await Supabase.instance.client
-                    .from('ho_so_nguoi_dung')
-                    .update({'bai_tap_qua_nang': heavyList})
-                    .eq('ma_nguoi_dung', userId);
-              } catch (dbError) {
-                debugPrint('Lỗi đồng bộ bài tập quá nặng lên CSDL: $dbError');
-              }
-            }
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Đã tự động cập nhật lịch tập phù hợp hơn cho bạn!'),
-                backgroundColor: AppTheme.neonGreen,
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-        } catch (e) {
-          debugPrint('Lỗi lưu bài tập quá nặng: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Khuyên dùng: Bạn nên chọn bài tập khác nhẹ hơn để tránh chấn thương!'),
+              backgroundColor: Colors.orangeAccent,
+              duration: Duration(seconds: 4),
+            ),
+          );
         }
       }
     }
