@@ -43,10 +43,11 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
   // Mảng lưu lịch trình 21 ngày đồng bộ từ Database
   List<Map<String, dynamic>> _savedSchedule = [];
-  bool _showExerciseGroups = false; // Ẩn/Hiện chọn nhóm bài tập
 
   final Set<ExerciseType> _customSelectedExercises = {};
   bool _isCustomSelectionActive = false;
+  final Set<ExerciseType> _tooHeavyExercises = {};
+  List<String> _customMuscleGroupLoopHistory = [];
 
   static const Map<String, List<ExerciseType>> _exerciseGroups = {
     'Thân trên': [ExerciseType.push_up, ExerciseType.plank],
@@ -78,6 +79,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _loadInitialData() async {
+    await _loadPreferencesData();
     await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
     await _loadAndSyncSchedule();
   }
@@ -304,11 +306,15 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
 
   bool _isExerciseBlocked(ExerciseType type, double bmi, int age) {
+    if (_tooHeavyExercises.contains(type)) return true;
     if (type == ExerciseType.burpee && (bmi >= 25.0 || age >= 45)) return true;
     return false;
   }
 
   String _getBlockedReason(ExerciseType type, double bmi, int age) {
+    if (_tooHeavyExercises.contains(type)) {
+      return '⚠️ Đã bỏ qua bài tập này (quá nặng đối với bạn)';
+    }
     if (type == ExerciseType.burpee) {
       if (bmi >= 25.0) {
         return '⚠️ Bị chặn: Thừa cân (BMI ≥ 25), Burpee gây áp lực lớn lên khớp gối';
@@ -341,12 +347,122 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         !_isExerciseDoneOnDate(type, previousDay);
   }
 
+  Future<void> _loadPreferencesData() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    final list = prefs.getStringList('too_heavy_exercises') ?? [];
+    setState(() {
+      _tooHeavyExercises.clear();
+      for (final name in list) {
+        final type = _exerciseTypeFromName(name);
+        if (type != null) _tooHeavyExercises.add(type);
+      }
+    });
+
+    final history = prefs.getStringList('custom_muscle_group_loop_history') ?? [];
+    setState(() {
+      _customMuscleGroupLoopHistory = List<String>.from(history);
+    });
+
+    setState(() {
+      _isCustomSelectionActive = prefs.getBool('is_custom_selection_active') ?? false;
+    });
+
+    final selectedNames = prefs.getStringList('custom_selected_exercises') ?? [];
+    setState(() {
+      _customSelectedExercises.clear();
+      for (final name in selectedNames) {
+        final type = _exerciseTypeFromName(name);
+        if (type != null) _customSelectedExercises.add(type);
+      }
+    });
+  }
+
+  Future<void> _resetTooHeavyExercises() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('too_heavy_exercises');
+    setState(() {
+      _tooHeavyExercises.clear();
+    });
+    
+    if (_savedSchedule.isNotEmpty) {
+      final int todayIndex = DateTime.now().weekday - 1;
+      final int safeTodayIndex = 7 + todayIndex;
+      final double bmi = _weight / ((_height / 100) * (_height / 100));
+      
+      if (_isCustomSelectionActive) {
+        final scientificTargets = _calculateScientificReps(
+          _weight,
+          _height,
+          _age,
+          _selectedGoal,
+          _gender,
+          activeCount: _customSelectedExercises.isNotEmpty ? _customSelectedExercises.length : 4,
+        );
+        final customList = _buildCustomExerciseList(scientificTargets);
+        
+        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+        updatedSchedule[safeTodayIndex]['exercises'] = customList;
+        updatedSchedule[safeTodayIndex]['isRest'] = false;
+        await _saveScheduleLocallyAndDb(updatedSchedule);
+      } else {
+        final generated = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
+        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+        updatedSchedule[safeTodayIndex]['exercises'] = generated[todayIndex]['exercises'];
+        updatedSchedule[safeTodayIndex]['isRest'] = generated[todayIndex]['isRest'];
+        await _saveScheduleLocallyAndDb(updatedSchedule);
+      }
+    }
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đã khôi phục toàn bộ bài tập bị quá sức!'),
+          backgroundColor: AppTheme.neonGreen,
+        ),
+      );
+    }
+  }
+
   void _toggleExerciseGroup(
     String groupName,
     double bmi,
     int age,
     DateTime selectedDayDate,
   ) async {
+    if (_hasStartedTodayWorkout()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bạn đã bắt đầu tập luyện ngày hôm nay. Không thể thay đổi nhóm cơ!'),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final todayStr = selectedDayDate.toIso8601String().split('T')[0];
+    final lastSelectionDate = prefs.getString('last_muscle_group_selection_date') ?? '';
+
+    // Kiểm tra xem nhóm cơ này có bị khóa trong chu kỳ hiện tại hay không
+    if (_customMuscleGroupLoopHistory.contains(groupName) && _customMuscleGroupLoopHistory.length < 3) {
+      final exercises = _exerciseGroups[groupName] ?? [];
+      final isCurrentlySelected = exercises.any((e) => _customSelectedExercises.contains(e));
+      
+      if (!isCurrentlySelected) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Nhóm $groupName đã được tập trong chu kỳ này. Hãy chọn nhóm khác!'),
+              backgroundColor: AppTheme.errorRed,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     final exercises = _exerciseGroups[groupName] ?? [];
     final validExercises = exercises
         .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
@@ -354,24 +470,54 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     if (validExercises.isEmpty) return;
 
+    final bool isAlreadySelected = validExercises.every((e) => _customSelectedExercises.contains(e));
+
     setState(() {
-      _isCustomSelectionActive = true;
-      final allSelected = validExercises.every(
-        (e) => _customSelectedExercises.contains(e),
-      );
-      if (allSelected) {
-        for (final e in validExercises) {
-          _customSelectedExercises.remove(e);
-        }
-        if (_customSelectedExercises.isEmpty) {
-          _isCustomSelectionActive = false;
+      _customSelectedExercises.clear(); // Chọn độc nhất 1 nhóm cơ mỗi ngày
+      
+      if (isAlreadySelected) {
+        _isCustomSelectionActive = false;
+        if (lastSelectionDate == todayStr && _customMuscleGroupLoopHistory.isNotEmpty) {
+          _customMuscleGroupLoopHistory.removeLast();
         }
       } else {
-        for (final e in validExercises) {
-          _customSelectedExercises.add(e);
+        _isCustomSelectionActive = true;
+        _customSelectedExercises.addAll(validExercises);
+
+        if (lastSelectionDate == todayStr) {
+          if (_customMuscleGroupLoopHistory.isNotEmpty) {
+            _customMuscleGroupLoopHistory[_customMuscleGroupLoopHistory.length - 1] = groupName;
+          } else {
+            _customMuscleGroupLoopHistory.add(groupName);
+          }
+        } else {
+          _customMuscleGroupLoopHistory.add(groupName);
         }
       }
     });
+
+    final stringSelected = _customSelectedExercises.map((e) => e.name).toList();
+    await prefs.setStringList('custom_selected_exercises', stringSelected);
+
+    if (isAlreadySelected) {
+      await prefs.remove('last_muscle_group_selection_date');
+    } else {
+      await prefs.setString('last_muscle_group_selection_date', todayStr);
+    }
+
+    if (_customMuscleGroupLoopHistory.length >= 3) {
+      _customMuscleGroupLoopHistory.clear();
+      await prefs.remove('last_muscle_group_selection_date');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 Tuyệt vời! Bạn đã hoàn thành chu kỳ tập 3 nhóm cơ. Nút chuyển đổi chế độ AI đã được mở khóa.'),
+            backgroundColor: AppTheme.neonGreen,
+          ),
+        );
+      }
+    }
+    await prefs.setStringList('custom_muscle_group_loop_history', _customMuscleGroupLoopHistory);
 
     if (_savedSchedule.isNotEmpty) {
       final int todayIndex = DateTime.now().weekday - 1;
@@ -383,6 +529,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         _age,
         _selectedGoal,
         _gender,
+        activeCount: _customSelectedExercises.where((e) => !_isExerciseBlocked(e, bmi, age)).length,
       );
       final customList = _buildCustomExerciseList(scientificTargets);
 
@@ -391,6 +538,271 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       updatedSchedule[safeTodayIndex]['isRest'] = false;
 
       await _saveScheduleLocallyAndDb(updatedSchedule);
+    }
+  }
+
+  Widget _buildModeSelector() {
+    final bool isLocked = _customMuscleGroupLoopHistory.isNotEmpty && _customMuscleGroupLoopHistory.length < 3;
+    final int currentStep = _customMuscleGroupLoopHistory.length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: (isLocked || _hasStartedTodayWorkout())
+                      ? null
+                      : () => _updateActiveMode(false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: !_isCustomSelectionActive
+                          ? AppTheme.neonGreen.withValues(alpha: 0.15)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: !_isCustomSelectionActive
+                          ? Border.all(color: AppTheme.neonGreen.withValues(alpha: 0.4))
+                          : null,
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            size: 14,
+                            color: !_isCustomSelectionActive
+                                ? AppTheme.neonGreen
+                                : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'HLV AI ĐỀ XUẤT',
+                            style: TextStyle(
+                              color: !_isCustomSelectionActive
+                                  ? AppTheme.neonGreen
+                                  : Colors.grey,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: (isLocked || _hasStartedTodayWorkout())
+                      ? null
+                      : () => _updateActiveMode(true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: _isCustomSelectionActive
+                          ? AppTheme.neonBlue.withValues(alpha: 0.15)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: _isCustomSelectionActive
+                          ? Border.all(color: AppTheme.neonBlue.withValues(alpha: 0.4))
+                          : null,
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.tune,
+                            size: 14,
+                            color: _isCustomSelectionActive
+                                ? AppTheme.neonBlue
+                                : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'TỰ CHỌN NHÓM CƠ',
+                            style: TextStyle(
+                              color: _isCustomSelectionActive
+                                  ? AppTheme.neonBlue
+                                  : Colors.grey,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (isLocked) ...[
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.lock_clock,
+                    size: 14,
+                    color: Colors.orangeAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Chu kỳ tự chọn đang khóa (Buổi $currentStep/3). Tập đủ 3 nhóm để mở lại chế độ AI.',
+                      style: const TextStyle(
+                        color: Colors.orangeAccent,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (_hasStartedTodayWorkout()) ...[
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    size: 14,
+                    color: AppTheme.errorRed,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Bạn đã bắt đầu tập luyện hôm nay. Chế độ tập đã khóa.',
+                      style: const TextStyle(
+                        color: AppTheme.errorRed,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateActiveMode(bool isCustom) async {
+    if (_hasStartedTodayWorkout()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bạn đã bắt đầu tập luyện ngày hôm nay. Không thể thay đổi chế độ tập!'),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_custom_selection_active', isCustom);
+    
+    setState(() {
+      _isCustomSelectionActive = isCustom;
+    });
+
+    if (!isCustom) {
+      _customSelectedExercises.clear();
+      await prefs.remove('custom_selected_exercises');
+      
+      if (_savedSchedule.isNotEmpty) {
+        final int todayIndex = DateTime.now().weekday - 1;
+        final int safeTodayIndex = 7 + todayIndex;
+        
+        final double bmi = _weight / ((_height / 100) * (_height / 100));
+        final generated = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
+        
+        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+        updatedSchedule[safeTodayIndex]['exercises'] = generated[todayIndex]['exercises'];
+        updatedSchedule[safeTodayIndex]['isRest'] = generated[todayIndex]['isRest'];
+        
+        await _saveScheduleLocallyAndDb(updatedSchedule);
+      }
+    } else {
+      if (_savedSchedule.isNotEmpty) {
+        final int todayIndex = DateTime.now().weekday - 1;
+        final int safeTodayIndex = 7 + todayIndex;
+        
+        if (_customSelectedExercises.isEmpty) {
+          List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+          updatedSchedule[safeTodayIndex]['exercises'] = [];
+          updatedSchedule[safeTodayIndex]['isRest'] = false;
+          await _saveScheduleLocallyAndDb(updatedSchedule);
+        } else {
+          _enforceMuscleGroupLoopForToday(safeTodayIndex);
+        }
+      }
+    }
+  }
+
+  Future<void> _enforceMuscleGroupLoopForToday(int safeTodayIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_customMuscleGroupLoopHistory.length == 2) {
+      String remainingGroup = '';
+      for (final g in _exerciseGroups.keys) {
+        if (!_customMuscleGroupLoopHistory.contains(g)) {
+          remainingGroup = g;
+          break;
+        }
+      }
+      
+      if (remainingGroup.isNotEmpty) {
+        final exercises = _exerciseGroups[remainingGroup] ?? [];
+        final bmi = _weight / ((_height / 100) * (_height / 100));
+        final valid = exercises.where((e) => !_isExerciseBlocked(e, bmi, _age)).toList();
+        
+        _customSelectedExercises.clear();
+        _customSelectedExercises.addAll(valid);
+        
+        final stringList = _customSelectedExercises.map((e) => e.name).toList();
+        await prefs.setStringList('custom_selected_exercises', stringList);
+
+        _customMuscleGroupLoopHistory.add(remainingGroup);
+        if (_customMuscleGroupLoopHistory.length >= 3) {
+          _customMuscleGroupLoopHistory.clear();
+          await prefs.remove('last_muscle_group_selection_date');
+        }
+        await prefs.setStringList('custom_muscle_group_loop_history', _customMuscleGroupLoopHistory);
+
+        final scientificTargets = _calculateScientificReps(
+          _weight,
+          _height,
+          _age,
+          _selectedGoal,
+          _gender,
+          activeCount: valid.length,
+        );
+        final customList = _buildCustomExerciseList(scientificTargets);
+        
+        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+        updatedSchedule[safeTodayIndex]['exercises'] = customList;
+        updatedSchedule[safeTodayIndex]['isRest'] = false;
+        
+        await _saveScheduleLocallyAndDb(updatedSchedule);
+      }
     }
   }
 
@@ -423,220 +835,165 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        GestureDetector(
-          onTap: () {
-            setState(() {
-              _showExerciseGroups = !_showExerciseGroups;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            color: Colors.transparent,
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.touch_app,
-                  color: AppTheme.neonGreen,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'CHỌN NHÓM BÀI TẬP (ẨN/HIỆN)',
-                    style: TextStyle(
-                      color: AppTheme.neonGreen,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      letterSpacing: 0.5,
+        const Text(
+          'CHỌN NHÓM CƠ MUỐN TẬP HÔM NAY',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: _exerciseGroups.keys.map((groupName) {
+            final exercises = _exerciseGroups[groupName] ?? [];
+            final availableExercises = exercises
+                .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
+                .toList();
+
+            final allSelected = availableExercises.isNotEmpty && availableExercises.every(
+              (e) => _customSelectedExercises.contains(e),
+            );
+
+            final bool isGroupLocked = _customMuscleGroupLoopHistory.contains(groupName) && 
+                                       _customMuscleGroupLoopHistory.length < 3 && 
+                                       !allSelected;
+
+            final bool isForcedGroup = _customMuscleGroupLoopHistory.length == 2 && 
+                                       !_customMuscleGroupLoopHistory.contains(groupName);
+
+            Color btnBgColor;
+            Color btnBorderColor;
+            Color textColor;
+            IconData? icon;
+
+            if (isGroupLocked || (_hasStartedTodayWorkout() && !allSelected)) {
+              btnBgColor = Colors.black.withValues(alpha: 0.5);
+              btnBorderColor = Colors.white.withValues(alpha: 0.03);
+              textColor = Colors.white.withValues(alpha: 0.25);
+              icon = Icons.lock_outline;
+            } else if (isForcedGroup) {
+              btnBgColor = AppTheme.neonGreen.withValues(alpha: 0.05);
+              btnBorderColor = AppTheme.neonGreen.withValues(alpha: 0.3);
+              textColor = AppTheme.neonGreen;
+              icon = Icons.star_border_purple500_rounded;
+            } else if (allSelected) {
+              btnBgColor = AppTheme.neonBlue.withValues(alpha: 0.15);
+              btnBorderColor = AppTheme.neonBlue;
+              textColor = Colors.white;
+              icon = Icons.check_circle_outline;
+            } else {
+              btnBgColor = Colors.white.withValues(alpha: 0.04);
+              btnBorderColor = Colors.white.withValues(alpha: 0.1);
+              textColor = Colors.white70;
+            }
+
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                child: GestureDetector(
+                  onTap: (availableExercises.isEmpty || isGroupLocked || isForcedGroup || _hasStartedTodayWorkout())
+                      ? null
+                      : () => _toggleExerciseGroup(
+                            groupName,
+                            bmi,
+                            age,
+                            selectedDayDate,
+                          ),
+                  child: Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: btnBgColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: btnBorderColor, width: 1.2),
+                      boxShadow: allSelected
+                          ? [
+                              BoxShadow(
+                                color: AppTheme.neonBlue.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              )
+                            ]
+                          : null,
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (icon != null) ...[
+                            Icon(icon, size: 12, color: textColor),
+                            const SizedBox(height: 3),
+                          ],
+                          Text(
+                            groupName,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                Icon(
-                  _showExerciseGroups
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
+              ),
+            );
+          }).toList(),
+        ),
+        if (_customMuscleGroupLoopHistory.length == 2) ...[
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.star_purple500_rounded,
+                  size: 13,
                   color: AppTheme.neonGreen,
-                  size: 20,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Chu kỳ đang bắt buộc nhóm cơ cuối cùng để hoàn thành vòng lặp 3 ngày.',
+                    style: TextStyle(
+                      color: AppTheme.neonGreen.withValues(alpha: 0.9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-        ),
-        if (_showExerciseGroups) ...[
-          const SizedBox(height: 8),
-          ..._exerciseGroups.entries.map((entry) {
-            final groupName = entry.key;
-            final exercises = entry.value;
-            final availableExercises = exercises
-                .where(
-                  (e) =>
-                      _isExerciseSelectableForDay(e, selectedDayDate, bmi, age),
-                )
-                .toList();
-            final blockedExercises = exercises
-                .where((e) => _isExerciseBlocked(e, bmi, age))
-                .toList();
-            final repeatedExercises = exercises
-                .where(
-                  (e) => _isExerciseDoneOnDate(
-                    e,
-                    selectedDayDate.subtract(const Duration(days: 1)),
-                  ),
-                )
-                .toList();
-            final allSelected = availableExercises.every(
-              (e) => _customSelectedExercises.contains(e),
-            );
-            final hasWarnings =
-                blockedExercises.isNotEmpty || repeatedExercises.isNotEmpty;
-
-            return Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: hasWarnings
-                    ? Colors.red.withValues(alpha: 0.06)
-                    : Colors.white.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: hasWarnings
-                      ? AppTheme.errorRed.withValues(alpha: 0.35)
-                      : Colors.white10,
+        ],
+        if (_hasStartedTodayWorkout()) ...[
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  size: 13,
+                  color: AppTheme.errorRed,
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              groupName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _groupReasons[groupName] ?? '',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.7),
-                                fontSize: 11.5,
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: availableExercises.isEmpty
-                            ? null
-                            : () => _toggleExerciseGroup(
-                                groupName,
-                                bmi,
-                                age,
-                                selectedDayDate,
-                              ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: allSelected
-                              ? AppTheme.neonGreen
-                              : AppTheme.neonBlue,
-                        ),
-                        child: Text(
-                          allSelected ? 'BỎ CHỌN' : 'CHỌN NHÓM',
-                          style: const TextStyle(fontSize: 11.5),
-                        ),
-                      ),
-                    ],
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Bạn đã bắt đầu tập luyện hôm nay. Nhóm cơ đã tập được khóa cố định.',
+                    style: TextStyle(
+                      color: AppTheme.errorRed.withValues(alpha: 0.9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: exercises.map((exerciseType) {
-                      final isBlocked = _isExerciseBlocked(
-                        exerciseType,
-                        bmi,
-                        age,
-                      );
-                      final isRepeated = _isExerciseDoneOnDate(
-                        exerciseType,
-                        selectedDayDate.subtract(const Duration(days: 1)),
-                      );
-                      final isSelectable = !isBlocked && !isRepeated;
-                      final isSelected = _customSelectedExercises.contains(
-                        exerciseType,
-                      );
-                      final exerciseLabel = ExerciseDetail.defaultExercises
-                          .firstWhere((e) => e.type == exerciseType)
-                          .name;
-
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isBlocked
-                              ? AppTheme.errorRed.withValues(alpha: 0.12)
-                              : isSelected
-                              ? AppTheme.neonGreen.withValues(alpha: 0.12)
-                              : Colors.white.withValues(alpha: 0.04),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isBlocked
-                                ? AppTheme.errorRed.withValues(alpha: 0.45)
-                                : isSelected
-                                ? AppTheme.neonGreen.withValues(alpha: 0.45)
-                                : Colors.white10,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              exerciseLabel,
-                              style: TextStyle(
-                                color: isBlocked
-                                    ? AppTheme.errorRed
-                                    : Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11.5,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isBlocked
-                                  ? _getBlockedReason(exerciseType, bmi, age)
-                                  : isRepeated
-                                  ? 'Đã tập hôm trước'
-                                  : isSelectable
-                                  ? 'Có thể chọn'
-                                  : 'Không khả dụng',
-                              style: TextStyle(
-                                color: isBlocked
-                                    ? AppTheme.errorRed
-                                    : Colors.white70,
-                                fontSize: 10.5,
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
+                ),
+              ],
+            ),
+          ),
         ],
       ],
     );
@@ -920,6 +1277,24 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return completionKeys.contains(type.name);
   }
 
+  bool _hasStartedTodayWorkout() {
+    if (_savedSchedule.isEmpty) return false;
+    final int todayIndex = DateTime.now().weekday - 1;
+    final int safeTodayIndex = 7 + todayIndex;
+    if (safeTodayIndex >= _savedSchedule.length) return false;
+    final todayData = _savedSchedule[safeTodayIndex];
+    final exercises = todayData['exercises'] as List? ?? [];
+    final selectedDate = _getSelectedDayDate(safeTodayIndex);
+    
+    for (final ex in exercises) {
+      final type = ex['type'] as ExerciseType;
+      if (_isExerciseCompletedForDay(type, selectedDate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _loadCompletedExercisesForDay(DateTime day) async {
     if (!_isSupabaseInitialized) return;
     try {
@@ -1160,8 +1535,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double height,
     int age,
     String goal,
-    String gender,
-  ) {
+    String gender, {
+    int activeCount = 4,
+  }) {
     double bmi = weight / ((height / 100) * (height / 100));
     double bmr = 0.0;
     if (gender.toLowerCase() == 'female') {
@@ -1213,7 +1589,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
 
     targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
-    final double caloriesPerExercise = targetWorkoutCalories / 4;
+    final double caloriesPerExercise = targetWorkoutCalories / (activeCount > 0 ? activeCount : 4);
     final Map<ExerciseType, int> computedTargets = {};
     double weightFactor = weight / 70.0;
 
@@ -1283,8 +1659,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double bmi,
     int age,
   ) {
-    bool avoidBurpee = (bmi >= 25.0 || age >= 45);
-
     if (goal == 'lose') {
       return [
         {
@@ -1688,14 +2062,25 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final selectedDayData = _savedSchedule[selectedDayIndex];
     final selectedDayDate = _getSelectedDayDate(selectedDayIndex);
 
+    // Lọc tìm các bài tập hoạt động cho ngày được chọn để chia Calo thích ứng
+    final List<dynamic> rawDayExercises = selectedDayData['exercises'] as List<dynamic>? ?? [];
+    final double dayBmi = _height > 0 ? _weight / ((_height / 100) * (_height / 100)) : 0.0;
+    final List<dynamic> dayActiveExercises = rawDayExercises.where((e) {
+      final type = e['type'] as ExerciseType;
+      return !_isExerciseBlocked(type, dayBmi, _age);
+    }).toList();
+
+    final int dayActiveCount = dayActiveExercises.isEmpty ? 4 : dayActiveExercises.length;
+    final double caloriesPerExercise = targetWorkoutCalories / dayActiveCount;
+
     final scientificTargets = _calculateScientificReps(
       _weight,
       _height,
       _age,
       _selectedGoal,
       _gender,
+      activeCount: dayActiveCount,
     );
-    final double caloriesPerExercise = targetWorkoutCalories / 4;
 
     return Scaffold(
       body: SafeArea(
@@ -1891,6 +2276,32 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               ),
                             ],
                           ),
+                          if (_tooHeavyExercises.isNotEmpty) ...[
+                            const Divider(color: Colors.white12, height: 24),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton.icon(
+                                onPressed: _resetTooHeavyExercises,
+                                style: TextButton.styleFrom(
+                                  backgroundColor: Colors.orangeAccent.withValues(alpha: 0.1),
+                                  foregroundColor: Colors.orangeAccent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    side: const BorderSide(color: Colors.orangeAccent, width: 1),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded, size: 16),
+                                label: Text(
+                                  'Đặt lại bài tập quá sức (${_tooHeavyExercises.length} bài)',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -2412,7 +2823,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                               scientificTargets,
                                             ).map((rec) {
                                               return _buildExerciseCard(
-                                                rec as Map<String, dynamic>,
+                                                rec,
                                                 scientificTargets,
                                                 caloriesPerExercise,
                                                 true,
@@ -2432,23 +2843,54 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                           as List<dynamic>? ??
                                       [];
 
+                                  // Lọc bài tập: Loại bỏ các bài tập bị quá sức hoặc bị chặn
+                                  List<dynamic> activeExercises = currentExercises.where((e) {
+                                    final type = e['type'] as ExerciseType;
+                                    return !_isExerciseBlocked(type, bmi, _age);
+                                  }).toList();
+
+                                  // Nếu tất cả các bài tập bị chặn hết, cung cấp một bài tập thay thế nhẹ nhàng
+                                  if (activeExercises.isEmpty && currentExercises.isNotEmpty) {
+                                    ExerciseType fallback = ExerciseType.plank;
+                                    if (_isExerciseBlocked(fallback, bmi, _age)) {
+                                      fallback = ExerciseType.squat;
+                                    }
+                                    if (_isExerciseBlocked(fallback, bmi, _age)) {
+                                      fallback = ExerciseType.jumping_jack;
+                                    }
+                                    activeExercises = [
+                                      {
+                                        'type': fallback,
+                                        'reason': 'Bài tập nhẹ nhàng thay thế (các bài tập khác quá sức hoặc bị chặn)'
+                                      }
+                                    ];
+                                  }
+
                                   if (currentExercises.isEmpty) {
-                                    if (isToday&&!isRest) {
-                                      return _buildExerciseGroupSelector(
-                                        bmi,
-                                        _age,
-                                        selectedDayDate,
+                                    if (isToday && !isRest) {
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          _buildModeSelector(),
+                                          if (_isCustomSelectionActive) ...[
+                                            _buildExerciseGroupSelector(
+                                              bmi,
+                                              _age,
+                                              selectedDayDate,
+                                            ),
+                                          ],
+                                        ],
                                       );
                                     }
                                     return const SizedBox.shrink();
                                   }
 
-                                  int totalExercises = currentExercises.length;
+                                  int totalExercises = activeExercises.length;
                                   int completedCount = 0;
                                   final List<String> completedList = [];
                                   final List<String> missingList = [];
 
-                                  for (var rec in currentExercises) {
+                                  for (var rec in activeExercises) {
                                     final ExerciseType type =
                                         rec['type'] as ExerciseType;
                                     final originalExercise = ExerciseDetail
@@ -2471,18 +2913,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      if (isToday&&!isRest) ...[
-                                        _buildExerciseGroupSelector(
-                                          bmi,
-                                          _age,
-                                          selectedDayDate,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        const Divider(
-                                          color: Colors.white10,
-                                          height: 1,
-                                        ),
-                                        const SizedBox(height: 12),
+                                      if (isToday && !isRest) ...[
+                                        _buildModeSelector(),
+                                        if (_isCustomSelectionActive) ...[
+                                          _buildExerciseGroupSelector(
+                                            bmi,
+                                            _age,
+                                            selectedDayDate,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          const Divider(
+                                            color: Colors.white10,
+                                            height: 1,
+                                          ),
+                                          const SizedBox(height: 12),
+                                        ],
                                         if (!_isCustomSelectionActive)
                                           Padding(
                                             padding: const EdgeInsets.only(
@@ -2613,7 +3058,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                         color: Colors.white10,
                                         height: 24,
                                       ),
-                                      ...currentExercises.map((rec) {
+                                      ...activeExercises.map((rec) {
                                         return _buildExerciseCard(
                                           rec as Map<String, dynamic>,
                                           scientificTargets,

@@ -20,6 +20,7 @@ import 'package:demo/data/services/pose_analysis/image_baking_service.dart';
 import 'widgets/camera_stream_view.dart';
 import 'widgets/workout_hud_panel.dart';
 import 'widgets/pose_skeleton_painter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final ExerciseDetail exercise;
@@ -1462,14 +1463,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ),
       );
       if (changeGoal == true) {
+        final prefs = await SharedPreferences.getInstance();
+        final list = prefs.getStringList('too_heavy_exercises') ?? [];
+        final typeName = widget.exercise.type.name;
+        if (!list.contains(typeName)) {
+          list.add(typeName);
+          await prefs.setStringList('too_heavy_exercises', list);
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Khuyên dùng: Bạn nên chọn bài tập khác nhẹ hơn để tránh chấn thương!'),
+            SnackBar(
+              content: Text('Đã ghi nhận! Hệ thống sẽ điều chỉnh bài tập ${widget.exercise.name} ra khỏi danh sách tập sắp tới của bạn.'),
               backgroundColor: Colors.orangeAccent,
-              duration: Duration(seconds: 4),
+              duration: const Duration(seconds: 4),
             ),
           );
+          Navigator.pop(context);
         }
       }
     }
