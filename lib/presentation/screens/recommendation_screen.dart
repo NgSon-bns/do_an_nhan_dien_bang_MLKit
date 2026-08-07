@@ -40,14 +40,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   final Map<ExerciseType, bool> _expandedTargetSelectors = {};
   final Map<String, Set<String>> _completedExerciseKeysByDay = {};
   List<Map<String, dynamic>> _todayMealLogs = [];
+  List<String> _heavyExercises = [];
 
   // Mảng lưu lịch trình 21 ngày đồng bộ từ Database
   List<Map<String, dynamic>> _savedSchedule = [];
+  bool _showExerciseGroups = false; // Ẩn/Hiện chọn nhóm bài tập
 
   final Set<ExerciseType> _customSelectedExercises = {};
   bool _isCustomSelectionActive = false;
-  final Set<ExerciseType> _tooHeavyExercises = {};
-  List<String> _customMuscleGroupLoopHistory = [];
 
   static const Map<String, List<ExerciseType>> _exerciseGroups = {
     'Thân trên': [ExerciseType.push_up, ExerciseType.plank],
@@ -62,12 +62,25 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     'Toàn thân': 'Jumping Jack và Burpee đốt calo toàn thân, tăng nhịp tim.',
   };
 
+  // Tiêu đề hiển thị cho từng nhóm bài tập khi lịch trình được sinh tự động
+  static const Map<String, String> _groupWorkoutTitles = {
+    'Thân trên': 'Kích hoạt bụng & Sức mạnh thân trên',
+    'Thân dưới': 'Săn chắc chân mông & Đùi',
+    'Toàn thân': 'Sức bền & Đốt mỡ toàn thân',
+  };
+
   @override
   void initState() {
     super.initState();
     _selectedWeekIndex = 1;
     _selectedDayIndex = 7 + (DateTime.now().weekday - 1);
     _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
+    await _loadHeavyExercises();
+    await _loadAndSyncSchedule();
 
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
@@ -76,12 +89,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
-  }
-
-  Future<void> _loadInitialData() async {
-    await _loadPreferencesData();
-    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
-    await _loadAndSyncSchedule();
   }
 
   // Chuyển đổi qua lại giữa Enum và String để lưu Database/Prefs
@@ -259,17 +266,31 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       return currentDay;
     }
 
-    final prevExercises =
-        (previousDay['exercises'] as List?)
-            ?.map((e) => e['type'] as ExerciseType)
-            .toSet() ??
-        {};
+    // Ép kiểu an toàn: dữ liệu cũ có thể lưu 'type' dạng String (trước khi
+    // decode) hoặc ExerciseType, tránh crash làm dừng cả tiến trình lưu lịch.
+    ExerciseType? _safeType(dynamic exMap) {
+      if (exMap is! Map) return null;
+      final raw = exMap['type'];
+      if (raw is ExerciseType) return raw;
+      if (raw is String) return _exerciseTypeFromName(raw);
+      return null;
+    }
+
+    final prevExercises = <ExerciseType>{};
+    for (final e in (previousDay['exercises'] as List?) ?? const []) {
+      final t = _safeType(e);
+      if (t != null) prevExercises.add(t);
+    }
 
     final currExercises = (currentDay['exercises'] as List?) ?? [];
     List<Map<String, dynamic>> filteredExercises = [];
 
     for (var ex in currExercises) {
-      final ExerciseType type = ex['type'] as ExerciseType;
+      final ExerciseType? type = _safeType(ex);
+      if (type == null) {
+        filteredExercises.add(Map<String, dynamic>.from(ex as Map));
+        continue;
+      }
       // Nếu bài tập trùng với ngày hôm trước, tự động đổi sang bài thay thế an toàn
       if (prevExercises.contains(type)) {
         final alternativeType = _getAlternativeExercise(type);
@@ -278,7 +299,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           'reason': 'Đổi bài để tránh trùng lặp liên tiếp với ngày hôm trước.',
         });
       } else {
-        filteredExercises.add(Map<String, dynamic>.from(ex));
+        filteredExercises.add(Map<String, dynamic>.from(ex as Map));
       }
     }
 
@@ -290,31 +311,121 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   ExerciseType _getAlternativeExercise(ExerciseType type) {
     switch (type) {
       case ExerciseType.burpee:
-        return ExerciseType.jumping_jack;
-      case ExerciseType.push_up:
         return ExerciseType.plank;
-      case ExerciseType.walking_lunge:
+      case ExerciseType.push_up:
         return ExerciseType.squat;
-      case ExerciseType.squat:
-        return ExerciseType.walking_lunge;
-      case ExerciseType.jumping_jack:
+      case ExerciseType.walking_lunge:
         return ExerciseType.burpee;
-      case ExerciseType.plank:
+      case ExerciseType.squat:
+        return ExerciseType.jumping_jack;
+      case ExerciseType.jumping_jack:
         return ExerciseType.push_up;
+      case ExerciseType.plank:
+        return ExerciseType.walking_lunge;
     }
   }
 
+  String _heavyExercisesPrefsKey() {
+    final userId = _isSupabaseInitialized
+        ? Supabase.instance.client.auth.currentUser?.id
+        : null;
+    return 'heavy_exercises_${userId ?? 'guest'}';
+  }
+
+  Future<void> _loadHeavyExercises() async {
+    if (!_isSupabaseInitialized) {
+      await _loadHeavyExercisesFromPrefs();
+      return;
+    }
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId == null) {
+        await _loadHeavyExercisesFromPrefs();
+        return;
+      }
+      final row = await client
+          .from('ho_so_nguoi_dung')
+          .select('bai_tap_qua_nang')
+          .eq('ma_nguoi_dung', userId)
+          .maybeSingle();
+
+      final list =
+          (row?['bai_tap_qua_nang'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
+
+      if (mounted) {
+        setState(() {
+          _heavyExercises = list;
+        });
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_heavyExercisesPrefsKey(), list);
+    } catch (e) {
+      debugPrint('Lỗi tải bài tập quá nặng từ CSDL: $e');
+      await _loadHeavyExercisesFromPrefs();
+    }
+  }
+
+  Future<void> _loadHeavyExercisesFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_heavyExercisesPrefsKey()) ?? [];
+      if (mounted) {
+        setState(() {
+          _heavyExercises = list;
+        });
+      }
+    } catch (e) {
+      debugPrint('Lỗi tải bài tập quá nặng: $e');
+    }
+  }
+
+  Future<void> _removeHeavyExercise(ExerciseType type) async {
+    final updated = List<String>.from(_heavyExercises)..remove(type.name);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_heavyExercisesPrefsKey(), updated);
+
+      if (mounted) {
+        setState(() {
+          _heavyExercises = updated;
+        });
+      }
+
+      if (_isSupabaseInitialized) {
+        final client = Supabase.instance.client;
+        final userId = client.auth.currentUser?.id;
+        if (userId != null) {
+          await client
+              .from('ho_so_nguoi_dung')
+              .update({'bai_tap_qua_nang': updated})
+              .eq('ma_nguoi_dung', userId);
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Đã bỏ chặn bài tập này'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Lỗi xóa bài tập quá nặng: $e');
+    }
+  }
 
   bool _isExerciseBlocked(ExerciseType type, double bmi, int age) {
-    if (_tooHeavyExercises.contains(type)) return true;
     if (type == ExerciseType.burpee && (bmi >= 25.0 || age >= 45)) return true;
+    if (_heavyExercises.contains(type.name)) return true;
     return false;
   }
 
   String _getBlockedReason(ExerciseType type, double bmi, int age) {
-    if (_tooHeavyExercises.contains(type)) {
-      return '⚠️ Đã bỏ qua bài tập này (quá nặng đối với bạn)';
-    }
     if (type == ExerciseType.burpee) {
       if (bmi >= 25.0) {
         return '⚠️ Bị chặn: Thừa cân (BMI ≥ 25), Burpee gây áp lực lớn lên khớp gối';
@@ -322,6 +433,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       if (age >= 45) {
         return '⚠️ Bị chặn: Cao tuổi (≥ 45), Burpee cường độ cao có thể gây ngã nguy hiểm';
       }
+    }
+    if (_heavyExercises.contains(type.name)) {
+      return '⚠️ Bị chặn: AI phát hiện bài này quá nặng với bạn';
     }
     return '';
   }
@@ -347,122 +461,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         !_isExerciseDoneOnDate(type, previousDay);
   }
 
-  Future<void> _loadPreferencesData() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final list = prefs.getStringList('too_heavy_exercises') ?? [];
-    setState(() {
-      _tooHeavyExercises.clear();
-      for (final name in list) {
-        final type = _exerciseTypeFromName(name);
-        if (type != null) _tooHeavyExercises.add(type);
-      }
-    });
-
-    final history = prefs.getStringList('custom_muscle_group_loop_history') ?? [];
-    setState(() {
-      _customMuscleGroupLoopHistory = List<String>.from(history);
-    });
-
-    setState(() {
-      _isCustomSelectionActive = prefs.getBool('is_custom_selection_active') ?? false;
-    });
-
-    final selectedNames = prefs.getStringList('custom_selected_exercises') ?? [];
-    setState(() {
-      _customSelectedExercises.clear();
-      for (final name in selectedNames) {
-        final type = _exerciseTypeFromName(name);
-        if (type != null) _customSelectedExercises.add(type);
-      }
-    });
-  }
-
-  Future<void> _resetTooHeavyExercises() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('too_heavy_exercises');
-    setState(() {
-      _tooHeavyExercises.clear();
-    });
-    
-    if (_savedSchedule.isNotEmpty) {
-      final int todayIndex = DateTime.now().weekday - 1;
-      final int safeTodayIndex = 7 + todayIndex;
-      final double bmi = _weight / ((_height / 100) * (_height / 100));
-      
-      if (_isCustomSelectionActive) {
-        final scientificTargets = _calculateScientificReps(
-          _weight,
-          _height,
-          _age,
-          _selectedGoal,
-          _gender,
-          activeCount: _customSelectedExercises.isNotEmpty ? _customSelectedExercises.length : 4,
-        );
-        final customList = _buildCustomExerciseList(scientificTargets);
-        
-        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-        updatedSchedule[safeTodayIndex]['exercises'] = customList;
-        updatedSchedule[safeTodayIndex]['isRest'] = false;
-        await _saveScheduleLocallyAndDb(updatedSchedule);
-      } else {
-        final generated = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
-        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-        updatedSchedule[safeTodayIndex]['exercises'] = generated[todayIndex]['exercises'];
-        updatedSchedule[safeTodayIndex]['isRest'] = generated[todayIndex]['isRest'];
-        await _saveScheduleLocallyAndDb(updatedSchedule);
-      }
-    }
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đã khôi phục toàn bộ bài tập bị quá sức!'),
-          backgroundColor: AppTheme.neonGreen,
-        ),
-      );
-    }
-  }
-
   void _toggleExerciseGroup(
     String groupName,
     double bmi,
     int age,
     DateTime selectedDayDate,
   ) async {
-    if (_hasStartedTodayWorkout()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bạn đã bắt đầu tập luyện ngày hôm nay. Không thể thay đổi nhóm cơ!'),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
-      }
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final todayStr = selectedDayDate.toIso8601String().split('T')[0];
-    final lastSelectionDate = prefs.getString('last_muscle_group_selection_date') ?? '';
-
-    // Kiểm tra xem nhóm cơ này có bị khóa trong chu kỳ hiện tại hay không
-    if (_customMuscleGroupLoopHistory.contains(groupName) && _customMuscleGroupLoopHistory.length < 3) {
-      final exercises = _exerciseGroups[groupName] ?? [];
-      final isCurrentlySelected = exercises.any((e) => _customSelectedExercises.contains(e));
-      
-      if (!isCurrentlySelected) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Nhóm $groupName đã được tập trong chu kỳ này. Hãy chọn nhóm khác!'),
-              backgroundColor: AppTheme.errorRed,
-            ),
-          );
-        }
-        return;
-      }
-    }
-
     final exercises = _exerciseGroups[groupName] ?? [];
     final validExercises = exercises
         .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
@@ -470,322 +474,29 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     if (validExercises.isEmpty) return;
 
-    final bool isAlreadySelected = validExercises.every((e) => _customSelectedExercises.contains(e));
-
     setState(() {
-      _customSelectedExercises.clear(); // Chọn độc nhất 1 nhóm cơ mỗi ngày
-      
-      if (isAlreadySelected) {
-        _isCustomSelectionActive = false;
-        if (lastSelectionDate == todayStr && _customMuscleGroupLoopHistory.isNotEmpty) {
-          _customMuscleGroupLoopHistory.removeLast();
+      _isCustomSelectionActive = true;
+      final allSelected = validExercises.every(
+        (e) => _customSelectedExercises.contains(e),
+      );
+      if (allSelected) {
+        for (final e in validExercises) {
+          _customSelectedExercises.remove(e);
+        }
+        if (_customSelectedExercises.isEmpty) {
+          _isCustomSelectionActive = false;
         }
       } else {
-        _isCustomSelectionActive = true;
-        _customSelectedExercises.addAll(validExercises);
-
-        if (lastSelectionDate == todayStr) {
-          if (_customMuscleGroupLoopHistory.isNotEmpty) {
-            _customMuscleGroupLoopHistory[_customMuscleGroupLoopHistory.length - 1] = groupName;
-          } else {
-            _customMuscleGroupLoopHistory.add(groupName);
-          }
-        } else {
-          _customMuscleGroupLoopHistory.add(groupName);
+        for (final e in validExercises) {
+          _customSelectedExercises.add(e);
         }
       }
     });
-
-    final stringSelected = _customSelectedExercises.map((e) => e.name).toList();
-    await prefs.setStringList('custom_selected_exercises', stringSelected);
-
-    if (isAlreadySelected) {
-      await prefs.remove('last_muscle_group_selection_date');
-    } else {
-      await prefs.setString('last_muscle_group_selection_date', todayStr);
-    }
-
-    if (_customMuscleGroupLoopHistory.length >= 3) {
-      _customMuscleGroupLoopHistory.clear();
-      await prefs.remove('last_muscle_group_selection_date');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🎉 Tuyệt vời! Bạn đã hoàn thành chu kỳ tập 3 nhóm cơ. Nút chuyển đổi chế độ AI đã được mở khóa.'),
-            backgroundColor: AppTheme.neonGreen,
-          ),
-        );
-      }
-    }
-    await prefs.setStringList('custom_muscle_group_loop_history', _customMuscleGroupLoopHistory);
 
     if (_savedSchedule.isNotEmpty) {
-      final int todayIndex = DateTime.now().weekday - 1;
-      final int safeTodayIndex = 7 + todayIndex;
-
-      final scientificTargets = _calculateScientificReps(
-        _weight,
-        _height,
-        _age,
-        _selectedGoal,
-        _gender,
-        activeCount: _customSelectedExercises.where((e) => !_isExerciseBlocked(e, bmi, age)).length,
-      );
-      final customList = _buildCustomExerciseList(scientificTargets);
-
-      List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-      updatedSchedule[safeTodayIndex]['exercises'] = customList;
-      updatedSchedule[safeTodayIndex]['isRest'] = false;
-
-      await _saveScheduleLocallyAndDb(updatedSchedule);
-    }
-  }
-
-  Widget _buildModeSelector() {
-    final bool isLocked = _customMuscleGroupLoopHistory.isNotEmpty && _customMuscleGroupLoopHistory.length < 3;
-    final int currentStep = _customMuscleGroupLoopHistory.length;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: (isLocked || _hasStartedTodayWorkout())
-                      ? null
-                      : () => _updateActiveMode(false),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: !_isCustomSelectionActive
-                          ? AppTheme.neonGreen.withValues(alpha: 0.15)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: !_isCustomSelectionActive
-                          ? Border.all(color: AppTheme.neonGreen.withValues(alpha: 0.4))
-                          : null,
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.auto_awesome,
-                            size: 14,
-                            color: !_isCustomSelectionActive
-                                ? AppTheme.neonGreen
-                                : Colors.grey,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'HLV AI ĐỀ XUẤT',
-                            style: TextStyle(
-                              color: !_isCustomSelectionActive
-                                  ? AppTheme.neonGreen
-                                  : Colors.grey,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: GestureDetector(
-                  onTap: (isLocked || _hasStartedTodayWorkout())
-                      ? null
-                      : () => _updateActiveMode(true),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: _isCustomSelectionActive
-                          ? AppTheme.neonBlue.withValues(alpha: 0.15)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: _isCustomSelectionActive
-                          ? Border.all(color: AppTheme.neonBlue.withValues(alpha: 0.4))
-                          : null,
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.tune,
-                            size: 14,
-                            color: _isCustomSelectionActive
-                                ? AppTheme.neonBlue
-                                : Colors.grey,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'TỰ CHỌN NHÓM CƠ',
-                            style: TextStyle(
-                              color: _isCustomSelectionActive
-                                  ? AppTheme.neonBlue
-                                  : Colors.grey,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (isLocked) ...[
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.lock_clock,
-                    size: 14,
-                    color: Colors.orangeAccent,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Chu kỳ tự chọn đang khóa (Buổi $currentStep/3). Tập đủ 3 nhóm để mở lại chế độ AI.',
-                      style: const TextStyle(
-                        color: Colors.orangeAccent,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else if (_hasStartedTodayWorkout()) ...[
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.lock_outline_rounded,
-                    size: 14,
-                    color: AppTheme.errorRed,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Bạn đã bắt đầu tập luyện hôm nay. Chế độ tập đã khóa.',
-                      style: const TextStyle(
-                        color: AppTheme.errorRed,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _updateActiveMode(bool isCustom) async {
-    if (_hasStartedTodayWorkout()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bạn đã bắt đầu tập luyện ngày hôm nay. Không thể thay đổi chế độ tập!'),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
-      }
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_custom_selection_active', isCustom);
-    
-    setState(() {
-      _isCustomSelectionActive = isCustom;
-    });
-
-    if (!isCustom) {
-      _customSelectedExercises.clear();
-      await prefs.remove('custom_selected_exercises');
-      
-      if (_savedSchedule.isNotEmpty) {
+      try {
         final int todayIndex = DateTime.now().weekday - 1;
         final int safeTodayIndex = 7 + todayIndex;
-        
-        final double bmi = _weight / ((_height / 100) * (_height / 100));
-        final generated = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
-        
-        List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-        updatedSchedule[safeTodayIndex]['exercises'] = generated[todayIndex]['exercises'];
-        updatedSchedule[safeTodayIndex]['isRest'] = generated[todayIndex]['isRest'];
-        
-        await _saveScheduleLocallyAndDb(updatedSchedule);
-      }
-    } else {
-      if (_savedSchedule.isNotEmpty) {
-        final int todayIndex = DateTime.now().weekday - 1;
-        final int safeTodayIndex = 7 + todayIndex;
-        
-        if (_customSelectedExercises.isEmpty) {
-          List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-          updatedSchedule[safeTodayIndex]['exercises'] = [];
-          updatedSchedule[safeTodayIndex]['isRest'] = false;
-          await _saveScheduleLocallyAndDb(updatedSchedule);
-        } else {
-          _enforceMuscleGroupLoopForToday(safeTodayIndex);
-        }
-      }
-    }
-  }
-
-  Future<void> _enforceMuscleGroupLoopForToday(int safeTodayIndex) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (_customMuscleGroupLoopHistory.length == 2) {
-      String remainingGroup = '';
-      for (final g in _exerciseGroups.keys) {
-        if (!_customMuscleGroupLoopHistory.contains(g)) {
-          remainingGroup = g;
-          break;
-        }
-      }
-      
-      if (remainingGroup.isNotEmpty) {
-        final exercises = _exerciseGroups[remainingGroup] ?? [];
-        final bmi = _weight / ((_height / 100) * (_height / 100));
-        final valid = exercises.where((e) => !_isExerciseBlocked(e, bmi, _age)).toList();
-        
-        _customSelectedExercises.clear();
-        _customSelectedExercises.addAll(valid);
-        
-        final stringList = _customSelectedExercises.map((e) => e.name).toList();
-        await prefs.setStringList('custom_selected_exercises', stringList);
-
-        _customMuscleGroupLoopHistory.add(remainingGroup);
-        if (_customMuscleGroupLoopHistory.length >= 3) {
-          _customMuscleGroupLoopHistory.clear();
-          await prefs.remove('last_muscle_group_selection_date');
-        }
-        await prefs.setStringList('custom_muscle_group_loop_history', _customMuscleGroupLoopHistory);
 
         final scientificTargets = _calculateScientificReps(
           _weight,
@@ -793,15 +504,34 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _age,
           _selectedGoal,
           _gender,
-          activeCount: valid.length,
         );
         final customList = _buildCustomExerciseList(scientificTargets);
-        
+
         List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
+        updatedSchedule[safeTodayIndex] = Map<String, dynamic>.from(
+          updatedSchedule[safeTodayIndex],
+        );
         updatedSchedule[safeTodayIndex]['exercises'] = customList;
         updatedSchedule[safeTodayIndex]['isRest'] = false;
-        
+
+        // Cập nhật cascade từ NGÀY MAI trở đi: nếu bài tập ngày nào đó bị
+        // trùng với ngày liền trước (đã thay đổi), tự động đổi sang bài
+        // thay thế để không trùng lặp giữa 2 ngày tập liên tiếp.
+        for (int i = safeTodayIndex + 1; i < updatedSchedule.length; i++) {
+          updatedSchedule[i] = _ensureNoConsecutiveDuplicate(
+            updatedSchedule[i],
+            updatedSchedule[i - 1],
+          );
+        }
+
+        debugPrint(
+          'Đã cập nhật lịch hôm nay (index $safeTodayIndex) và cascade '
+          'tới ${updatedSchedule.length - 1 - safeTodayIndex} ngày sau đó.',
+        );
+
         await _saveScheduleLocallyAndDb(updatedSchedule);
+      } catch (e, st) {
+        debugPrint('Lỗi khi cập nhật lịch trình theo nhóm bài tập: $e\n$st');
       }
     }
   }
@@ -835,193 +565,306 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'CHỌN NHÓM CƠ MUỐN TẬP HÔM NAY',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: _exerciseGroups.keys.map((groupName) {
-            final exercises = _exerciseGroups[groupName] ?? [];
-            final availableExercises = exercises
-                .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
-                .toList();
-
-            final allSelected = availableExercises.isNotEmpty && availableExercises.every(
-              (e) => _customSelectedExercises.contains(e),
-            );
-
-            final bool isGroupLocked = _customMuscleGroupLoopHistory.contains(groupName) && 
-                                       _customMuscleGroupLoopHistory.length < 3 && 
-                                       !allSelected;
-
-            final bool isForcedGroup = _customMuscleGroupLoopHistory.length == 2 && 
-                                       !_customMuscleGroupLoopHistory.contains(groupName);
-
-            Color btnBgColor;
-            Color btnBorderColor;
-            Color textColor;
-            IconData? icon;
-
-            if (isGroupLocked || (_hasStartedTodayWorkout() && !allSelected)) {
-              btnBgColor = Colors.black.withValues(alpha: 0.5);
-              btnBorderColor = Colors.white.withValues(alpha: 0.03);
-              textColor = Colors.white.withValues(alpha: 0.25);
-              icon = Icons.lock_outline;
-            } else if (isForcedGroup) {
-              btnBgColor = AppTheme.neonGreen.withValues(alpha: 0.05);
-              btnBorderColor = AppTheme.neonGreen.withValues(alpha: 0.3);
-              textColor = AppTheme.neonGreen;
-              icon = Icons.star_border_purple500_rounded;
-            } else if (allSelected) {
-              btnBgColor = AppTheme.neonBlue.withValues(alpha: 0.15);
-              btnBorderColor = AppTheme.neonBlue;
-              textColor = Colors.white;
-              icon = Icons.check_circle_outline;
-            } else {
-              btnBgColor = Colors.white.withValues(alpha: 0.04);
-              btnBorderColor = Colors.white.withValues(alpha: 0.1);
-              textColor = Colors.white70;
-            }
-
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: GestureDetector(
-                  onTap: (availableExercises.isEmpty || isGroupLocked || isForcedGroup || _hasStartedTodayWorkout())
-                      ? null
-                      : () => _toggleExerciseGroup(
-                            groupName,
-                            bmi,
-                            age,
-                            selectedDayDate,
-                          ),
-                  child: Container(
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: btnBgColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: btnBorderColor, width: 1.2),
-                      boxShadow: allSelected
-                          ? [
-                              BoxShadow(
-                                color: AppTheme.neonBlue.withValues(alpha: 0.15),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              )
-                            ]
-                          : null,
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (icon != null) ...[
-                            Icon(icon, size: 12, color: textColor),
-                            const SizedBox(height: 3),
-                          ],
-                          Text(
-                            groupName,
-                            style: TextStyle(
-                              color: textColor,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _showExerciseGroups = !_showExerciseGroups;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            color: Colors.transparent,
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.touch_app,
+                  color: AppTheme.neonGreen,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'CHỌN NHÓM BÀI TẬP (ẨN/HIỆN)',
+                    style: TextStyle(
+                      color: AppTheme.neonGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
+                Icon(
+                  _showExerciseGroups
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  color: AppTheme.neonGreen,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_showExerciseGroups) ...[
+          const SizedBox(height: 8),
+          ..._exerciseGroups.entries.map((entry) {
+            final groupName = entry.key;
+            final exercises = entry.value;
+            final availableExercises = exercises
+                .where(
+                  (e) =>
+                      _isExerciseSelectableForDay(e, selectedDayDate, bmi, age),
+                )
+                .toList();
+            final blockedExercises = exercises
+                .where((e) => _isExerciseBlocked(e, bmi, age))
+                .toList();
+            final repeatedExercises = exercises
+                .where(
+                  (e) => _isExerciseDoneOnDate(
+                    e,
+                    selectedDayDate.subtract(const Duration(days: 1)),
+                  ),
+                )
+                .toList();
+            final allSelected = availableExercises.every(
+              (e) => _customSelectedExercises.contains(e),
+            );
+            final hasWarnings =
+                blockedExercises.isNotEmpty || repeatedExercises.isNotEmpty;
+
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: hasWarnings
+                    ? Colors.red.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: hasWarnings
+                      ? AppTheme.errorRed.withValues(alpha: 0.35)
+                      : Colors.white10,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              groupName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _groupReasons[groupName] ?? '',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 11.5,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: availableExercises.isEmpty
+                            ? null
+                            : () => _toggleExerciseGroup(
+                                groupName,
+                                bmi,
+                                age,
+                                selectedDayDate,
+                              ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: allSelected
+                              ? AppTheme.neonGreen
+                              : AppTheme.neonBlue,
+                        ),
+                        child: Text(
+                          allSelected ? 'BỎ CHỌN' : 'CHỌN NHÓM',
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: exercises.map((exerciseType) {
+                      final isBlocked = _isExerciseBlocked(
+                        exerciseType,
+                        bmi,
+                        age,
+                      );
+                      final isRepeated = _isExerciseDoneOnDate(
+                        exerciseType,
+                        selectedDayDate.subtract(const Duration(days: 1)),
+                      );
+                      final isSelectable = !isBlocked && !isRepeated;
+                      final isSelected = _customSelectedExercises.contains(
+                        exerciseType,
+                      );
+                      final exerciseLabel = ExerciseDetail.defaultExercises
+                          .firstWhere((e) => e.type == exerciseType)
+                          .name;
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isBlocked
+                              ? AppTheme.errorRed.withValues(alpha: 0.12)
+                              : isSelected
+                              ? AppTheme.neonGreen.withValues(alpha: 0.12)
+                              : Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isBlocked
+                                ? AppTheme.errorRed.withValues(alpha: 0.45)
+                                : isSelected
+                                ? AppTheme.neonGreen.withValues(alpha: 0.45)
+                                : Colors.white10,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              exerciseLabel,
+                              style: TextStyle(
+                                color: isBlocked
+                                    ? AppTheme.errorRed
+                                    : Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isBlocked
+                                  ? _getBlockedReason(exerciseType, bmi, age)
+                                  : isRepeated
+                                  ? 'Đã tập hôm trước'
+                                  : isSelectable
+                                  ? 'Có thể chọn'
+                                  : 'Không khả dụng',
+                              style: TextStyle(
+                                color: isBlocked
+                                    ? AppTheme.errorRed
+                                    : Colors.white70,
+                                fontSize: 10.5,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ),
             );
           }).toList(),
-        ),
-        if (_customMuscleGroupLoopHistory.length == 2) ...[
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.star_purple500_rounded,
-                  size: 13,
-                  color: AppTheme.neonGreen,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Chu kỳ đang bắt buộc nhóm cơ cuối cùng để hoàn thành vòng lặp 3 ngày.',
-                    style: TextStyle(
-                      color: AppTheme.neonGreen.withValues(alpha: 0.9),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        if (_hasStartedTodayWorkout()) ...[
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.lock_outline_rounded,
-                  size: 13,
-                  color: AppTheme.errorRed,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Bạn đã bắt đầu tập luyện hôm nay. Nhóm cơ đã tập được khóa cố định.',
-                    style: TextStyle(
-                      color: AppTheme.errorRed.withValues(alpha: 0.9),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ],
     );
   }
 
-  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(List<Map<String, dynamic>> rawSchedule) {
-    // rawSchedule có 7 phần tử (Day 1 -> Day 7). Nhân bản thành 3 tuần (21 phần tử)
-    final List<Map<String, dynamic>> raw21 = [];
-    for (int i = 0; i < 7; i++) {
-      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 1;
-      dayCopy['weekLabel'] = 'Tuần trước';
-      raw21.add(dayCopy);
+  ExerciseType _getAdaptedExerciseType(ExerciseType type) {
+    ExerciseType current = type;
+    while (_heavyExercises.contains(current.name)) {
+      if (current == ExerciseType.burpee) {
+        current = ExerciseType.jumping_jack;
+      } else if (current == ExerciseType.push_up) {
+        current = ExerciseType.plank;
+      } else if (current == ExerciseType.walking_lunge) {
+        current = ExerciseType.squat;
+      } else if (current == ExerciseType.squat) {
+        current = ExerciseType.jumping_jack;
+      } else if (current == ExerciseType.jumping_jack) {
+        current = ExerciseType.plank;
+      } else {
+        break;
+      }
     }
-    for (int i = 0; i < 7; i++) {
-      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 8;
-      dayCopy['weekLabel'] = 'Tuần này';
-      raw21.add(dayCopy);
+    return current;
+  }
+
+  String _getAdaptedReason(
+    ExerciseType originalType,
+    ExerciseType adaptedType,
+    String originalReason,
+  ) {
+    if (originalType == adaptedType) return originalReason;
+    final adaptedEx = ExerciseDetail.defaultExercises.firstWhere(
+      (e) => e.type == adaptedType,
+    );
+    final originalEx = ExerciseDetail.defaultExercises.firstWhere(
+      (e) => e.type == originalType,
+    );
+    return 'Bài tập thay thế: Bạn tập ${originalEx.name} chưa quen nên HLV tự động chuyển sang ${adaptedEx.name} nhẹ hơn để bảo vệ cơ thể.';
+  }
+
+  List<Map<String, dynamic>> _postProcessAdaptiveSchedule(
+    List<Map<String, dynamic>> rawSchedule,
+  ) {
+    // rawSchedule đã là danh sách đầy đủ 21 ngày (3 tuần) do
+    // _generateAdaptiveSchedule sinh ra tự động, không cần nhân bản nữa.
+    final List<Map<String, dynamic>> processed = [];
+    for (int index = 0; index < rawSchedule.length; index++) {
+      final day = rawSchedule[index];
+      final dayCopy = Map<String, dynamic>.from(day);
+      if (dayCopy['isRest'] == true) {
+        processed.add(dayCopy);
+        continue;
+      }
+      final List<dynamic> exercises = List.from(dayCopy['exercises'] as List);
+      final List<Map<String, dynamic>> newExercises = [];
+      for (int i = 0; i < exercises.length; i++) {
+        final exMap = Map<String, dynamic>.from(exercises[i] as Map);
+        ExerciseType originalType = exMap['type'] as ExerciseType;
+        ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
+
+        // Kiểm tra không trùng bài với ngày trước đó
+        if (index > 0 && processed[index - 1]['isRest'] != true) {
+          final prevExercises =
+              (processed[index - 1]['exercises'] as List?)
+                  ?.map((e) => e['type'] as ExerciseType)
+                  .toSet() ??
+              {};
+          if (prevExercises.contains(adaptedType)) {
+            adaptedType = _getAlternativeExercise(adaptedType);
+          }
+        }
+
+        if (originalType != adaptedType) {
+          exMap['type'] = adaptedType;
+          exMap['reason'] = _getAdaptedReason(
+            originalType,
+            adaptedType,
+            exMap['reason'] as String,
+          );
+        }
+        newExercises.add(exMap);
+      }
+      dayCopy['exercises'] = newExercises;
+      processed.add(dayCopy);
     }
-    for (int i = 0; i < 7; i++) {
-      final dayCopy = Map<String, dynamic>.from(rawSchedule[i]);
-      dayCopy['day'] = i + 15;
-      dayCopy['weekLabel'] = 'Tuần sau';
-      raw21.add(dayCopy);
-    }
-    
-    return raw21;
+    return processed;
   }
 
   Future<void> _refreshTodayDraftWorkout() async {
@@ -1277,24 +1120,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return completionKeys.contains(type.name);
   }
 
-  bool _hasStartedTodayWorkout() {
-    if (_savedSchedule.isEmpty) return false;
-    final int todayIndex = DateTime.now().weekday - 1;
-    final int safeTodayIndex = 7 + todayIndex;
-    if (safeTodayIndex >= _savedSchedule.length) return false;
-    final todayData = _savedSchedule[safeTodayIndex];
-    final exercises = todayData['exercises'] as List? ?? [];
-    final selectedDate = _getSelectedDayDate(safeTodayIndex);
-    
-    for (final ex in exercises) {
-      final type = ex['type'] as ExerciseType;
-      if (_isExerciseCompletedForDay(type, selectedDate)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   Future<void> _loadCompletedExercisesForDay(DateTime day) async {
     if (!_isSupabaseInitialized) return;
     try {
@@ -1535,9 +1360,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double height,
     int age,
     String goal,
-    String gender, {
-    int activeCount = 4,
-  }) {
+    String gender,
+  ) {
     double bmi = weight / ((height / 100) * (height / 100));
     double bmr = 0.0;
     if (gender.toLowerCase() == 'female') {
@@ -1589,7 +1413,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
 
     targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
-    final double caloriesPerExercise = targetWorkoutCalories / (activeCount > 0 ? activeCount : 4);
+    final double caloriesPerExercise = targetWorkoutCalories / 4;
     final Map<ExerciseType, int> computedTargets = {};
     double weightFactor = weight / 70.0;
 
@@ -1654,318 +1478,119 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     ExerciseType.plank => 0.0,
   };
 
+  // Số buổi "Toàn thân" mỗi tuần theo mục tiêu:
+  // - lose: 2 buổi/tuần | - maintain: 1 buổi/tuần | - build: 1 buổi / 2 tuần
+  // weekIndex: 0 = Tuần trước, 1 = Tuần này, 2 = Tuần sau
+  int _weeklyFullBodyCount(String goal, int weekIndex) {
+    switch (goal) {
+      case 'lose':
+        return 2;
+      case 'build':
+        // 1 buổi mỗi 2 tuần -> so le giữa các tuần
+        return weekIndex % 2 == 0 ? 1 : 0;
+      case 'maintain':
+      default:
+        return 1;
+    }
+  }
+
+  // Sắp xếp nhóm bài cho 5 ngày tập trong tuần (bỏ qua 2 ngày nghỉ),
+  // đảm bảo 2 ngày tập liên tiếp không cùng nhóm bài tập.
+  List<String> _groupPatternForWeek(int fullBodyCount) {
+    switch (fullBodyCount) {
+      case 2:
+        return const [
+          'Toàn thân',
+          'Thân trên',
+          'Thân dưới',
+          'Toàn thân',
+          'Thân trên',
+        ];
+      case 1:
+        return const [
+          'Thân trên',
+          'Thân dưới',
+          'Toàn thân',
+          'Thân trên',
+          'Thân dưới',
+        ];
+      case 0:
+      default:
+        return const [
+          'Thân trên',
+          'Thân dưới',
+          'Thân trên',
+          'Thân dưới',
+          'Thân trên',
+        ];
+    }
+  }
+
+  Map<String, dynamic> _buildWorkoutDayFromGroup(String groupName) {
+    final exercises = _exerciseGroups[groupName] ?? const [];
+    return {
+      'title': _groupWorkoutTitles[groupName] ?? groupName,
+      'isRest': false,
+      'exercises': exercises.map((type) {
+        final ex = ExerciseDetail.defaultExercises.firstWhere(
+          (e) => e.type == type,
+        );
+        return {
+          'type': type,
+          'reason': '${ex.name} - ${_groupReasons[groupName] ?? ''}',
+        };
+      }).toList(),
+    };
+  }
+
+  Map<String, dynamic> _buildRestDay({required bool isEndOfWeek}) {
+    return {
+      'title': 'Nghỉ ngơi phục hồi',
+      'isRest': true,
+      'reason': isEndOfWeek
+          ? 'Hoàn thành chu kỳ tuần tập luyện. Hãy uống đủ nước, ăn đủ chất và ngủ sâu để chuẩn bị cho chu kỳ tiếp theo hiệu quả hơn!'
+          : 'Hãy thực hiện các động tác giãn cơ nhẹ nhàng hoặc đi bộ thư giãn để giải phóng axit lactic và giúp cơ bắp hồi phục.',
+    };
+  }
+
+  // Tự động sinh lịch trình 21 ngày (3 tuần) dựa trên mục tiêu, thay cho
+  // danh sách cố định trước đây. Ngày nghỉ giữ nguyên vị trí (ngày 3 và 7
+  // mỗi tuần), các nhóm bài tập được xoay vòng để không trùng nhau giữa
+  // 2 ngày tập liên tiếp.
   List<Map<String, dynamic>> _generateAdaptiveSchedule(
     String goal,
     double bmi,
     int age,
   ) {
-    if (goal == 'lose') {
-      return [
-        {
-          'day': 1,
-          'title': 'Đốt mỡ khởi động',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.jumping_jack,
-              'reason':
-                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
-            },
-            {
-              'type': ExerciseType.burpee,
-              'reason':
-                  'Burpee bộc phát giúp đẩy tối đa hiệu suất tiêu hao năng lượng trong ngày khởi đầu (Toàn thân).',
-            },
-          ],
-        },
-        {
-          'day': 2,
-          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Plank để củng cố sức mạnh nhóm cơ core trung tâm bụng lưng (Thân trên).',
-            },
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy duy trì phom ngực và vai săn chắc (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 3,
-          'title': 'Nghỉ ngơi phục hồi',
-          'isRest': true,
-          'reason':
-              'Hãy thực hiện các động tác giãn cơ nhẹ nhàng hoặc đi bộ thư giãn để giải phóng axit lactic và giúp cơ bắp hồi phục.',
-        },
-        {
-          'day': 4,
-          'title': 'Săn chắc chân mông',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.squat,
-              'reason':
-                  'Squat tăng cường sức mạnh đùi mông và cải thiện tính thăng bằng (Thân dưới).',
-            },
-            {
-              'type': ExerciseType.walking_lunge,
-              'reason':
-                  'Lunge bước đi săn chắc đùi mông và cải thiện tính thăng bằng khớp hông (Thân dưới).',
-            },
-          ],
-        },
-        {
-          'day': 5,
-          'title': 'Sức bền & Bộc phát',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.jumping_jack,
-              'reason':
-                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
-            },
-            {
-              'type': ExerciseType.burpee,
-              'reason':
-                  'Burpee cường độ cao giúp tối ưu hóa calo thâm hụt (Toàn thân).',
-            },
-          ],
-        },
-        {
-          'day': 6,
-          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Thử thách Plank giữ thẳng lưng giúp định hình vòng eo thon nhỏ (Thân trên).',
-            },
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy duy trì phom ngực và vai săn chắc (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 7,
-          'title': 'Nghỉ ngơi phục hồi',
-          'isRest': true,
-          'reason':
-              'Hoàn thành chu kỳ 7 ngày tập luyện. Hãy uống đủ nước, ăn đủ chất và ngủ sâu để chuẩn bị cho chu kỳ tiếp theo hiệu quả hơn!',
-        },
-      ];
-    } else if (goal == 'build') {
-      return [
-        {
-          'day': 1,
-          'title': 'Sức mạnh Ngực & Vai',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
-            },
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Plank tăng độ vững chãi cho core bụng để chịu lực cơ thể tốt hơn (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 2,
-          'title': 'Phát triển Mông Đùi',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.squat,
-              'reason':
-                  'Squat kích hoạt sản sinh hormone tăng trưởng tự nhiên để phát triển nhóm cơ lớn nhất cơ thể (Thân dưới).',
-            },
-            {
-              'type': ExerciseType.walking_lunge,
-              'reason':
-                  'Walking Lunge tăng sức mạnh độc lập từng chân và cải thiện tính linh hoạt khớp hông (Thân dưới).',
-            },
-          ],
-        },
-        {
-          'day': 3,
-          'title': 'Nghỉ ngơi phục hồi cơ',
-          'isRest': true,
-          'reason':
-              'Cơ bắp cần thời gian nghỉ ngơi để bù đắp sợi cơ bị tổn thương sau những ngày tập nặng. Hãy ngủ đủ giấc!',
-        },
-        {
-          'day': 4,
-          'title': 'Thể lực & Bộc phát',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.burpee,
-              'reason':
-                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
-            },
-            {
-              'type': ExerciseType.jumping_jack,
-              'reason':
-                  'Nhảy Jumping Jack nhịp nhàng để làm nóng cơ thể và kích hoạt tuần hoàn tim mạch (Toàn thân).',
-            },
-          ],
-        },
-        {
-          'day': 5,
-          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Plank tăng sức bền tĩnh cho cột sống và nhóm cơ sườn chậu (Thân trên).',
-            },
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 6,
-          'title': 'Sức bền ',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.burpee,
-              'reason':
-                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
-            },
-            {
-              'type': ExerciseType.jumping_jack,
-              'reason':
-                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất (Toàn thân).',
-            },
-          ],
-        },
-        {
-          'day': 7,
-          'title': 'Nghỉ ngơi phục hồi cơ',
-          'isRest': true,
-          'reason':
-              'Chúc mừng bạn đã hoàn thành chu kỳ tập cơ! Hãy ăn đủ đạm, bổ sung nước và chuẩn bị thể lực tốt nhất.',
-        },
-      ];
-    } else {
-      return [
-        {
-          'day': 1,
-          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Plank siết eo nhẹ nhàng duy trì bụng phẳng và tư thế đứng thẳng đẹp mắt (Thân trên).',
-            },
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 2,
-          'title': 'Săn chắc Thân dưới',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.squat,
-              'reason':
-                  'Squat vừa sức duy trì cơ đùi mông săn gọn và linh hoạt ổ khớp gối (Thân dưới).',
-            },
-            {
-              'type': ExerciseType.walking_lunge,
-              'reason':
-                  'Walking Lunge tăng độ thăng bằng di động cho cơ khớp hông háng (Thân dưới).',
-            },
-          ],
-        },
-        {
-          'day': 3,
-          'title': 'Nghỉ ngơi phục hồi',
-          'isRest': true,
-          'reason':
-              'Một ngày thư giãn cơ thể. Hãy đi bộ nhẹ nhàng hoặc thực hiện yoga giãn cơ tại nhà.',
-        },
-        {
-          'day': 4,
-          'title': 'Sức bền toàn diện',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.burpee,
-              'reason':
-                  'Burpee thử thách sức bền cơ bắp bộc phát cường độ cao toàn diện (Toàn thân).',
-            },
-            {
-              'type': ExerciseType.jumping_jack,
-              'reason':
-                  'Jumping Jack kích hoạt bơm máu toàn thân tăng tốc độ chuyển hóa dưỡng chất (Toàn thân).',
-            },
-          ],
-        },
-        {
-          'day': 5,
-          'title': 'Kích hoạt bụng & Sức mạnh thân trên',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.push_up,
-              'reason':
-                  'Chống đẩy tập trung kích thích phát triển nhóm cơ ngực lớn, vai trước và tay sau (Thân trên).',
-            },
-            {
-              'type': ExerciseType.plank,
-              'reason':
-                  'Plank giữ vững liên kết cột sống lưng tránh đau mỏi do ngồi văn phòng nhiều (Thân trên).',
-            },
-          ],
-        },
-        {
-          'day': 6,
-          'title': 'Sức mạnh thân dưới',
-          'isRest': false,
-          'exercises': [
-            {
-              'type': ExerciseType.walking_lunge,
-              'reason':
-                  'Lunge bước đi nhẹ nhàng làm thon gọn bắp đùi mông (Thân dưới).',
-            },
-            {
-              'type': ExerciseType.squat,
-              'reason':
-                  'Squat tăng cường sức mạnh đùi mông và cải thiện tính thăng bằng (Thân dưới).',
-            },
-          ],
-        },
-        {
-          'day': 7,
-          'title': 'Nghỉ ngơi phục hồi',
-          'isRest': true,
-          'reason':
-              'Hoàn thành tuần lễ duy trì vóc dáng! Hãy tiếp tục duy trì chế độ dinh dưỡng giàu xơ và ngủ ngon giấc.',
-        },
-      ];
+    final List<Map<String, dynamic>> schedule = [];
+    const weekLabels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
+
+    for (int weekIndex = 0; weekIndex < 3; weekIndex++) {
+      final fullBodyCount = _weeklyFullBodyCount(goal, weekIndex);
+      final pattern = _groupPatternForWeek(fullBodyCount);
+      int slot = 0;
+
+      for (int dayInWeek = 1; dayInWeek <= 7; dayInWeek++) {
+        final int globalDay = weekIndex * 7 + dayInWeek;
+        Map<String, dynamic> dayData;
+
+        if (dayInWeek == 3) {
+          dayData = _buildRestDay(isEndOfWeek: false);
+        } else if (dayInWeek == 7) {
+          dayData = _buildRestDay(isEndOfWeek: true);
+        } else {
+          final groupName = pattern[slot % pattern.length];
+          slot++;
+          dayData = _buildWorkoutDayFromGroup(groupName);
+        }
+
+        dayData['day'] = globalDay;
+        dayData['weekLabel'] = weekLabels[weekIndex];
+        schedule.add(dayData);
+      }
     }
+
+    return schedule;
   }
 
   Widget _buildGoalChip(String id, String label) {
@@ -2062,25 +1687,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final selectedDayData = _savedSchedule[selectedDayIndex];
     final selectedDayDate = _getSelectedDayDate(selectedDayIndex);
 
-    // Lọc tìm các bài tập hoạt động cho ngày được chọn để chia Calo thích ứng
-    final List<dynamic> rawDayExercises = selectedDayData['exercises'] as List<dynamic>? ?? [];
-    final double dayBmi = _height > 0 ? _weight / ((_height / 100) * (_height / 100)) : 0.0;
-    final List<dynamic> dayActiveExercises = rawDayExercises.where((e) {
-      final type = e['type'] as ExerciseType;
-      return !_isExerciseBlocked(type, dayBmi, _age);
-    }).toList();
-
-    final int dayActiveCount = dayActiveExercises.isEmpty ? 4 : dayActiveExercises.length;
-    final double caloriesPerExercise = targetWorkoutCalories / dayActiveCount;
-
     final scientificTargets = _calculateScientificReps(
       _weight,
       _height,
       _age,
       _selectedGoal,
       _gender,
-      activeCount: dayActiveCount,
     );
+    final double caloriesPerExercise = targetWorkoutCalories / 4;
 
     return Scaffold(
       body: SafeArea(
@@ -2276,32 +1890,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                               ),
                             ],
                           ),
-                          if (_tooHeavyExercises.isNotEmpty) ...[
-                            const Divider(color: Colors.white12, height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              child: TextButton.icon(
-                                onPressed: _resetTooHeavyExercises,
-                                style: TextButton.styleFrom(
-                                  backgroundColor: Colors.orangeAccent.withValues(alpha: 0.1),
-                                  foregroundColor: Colors.orangeAccent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    side: const BorderSide(color: Colors.orangeAccent, width: 1),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                ),
-                                icon: const Icon(Icons.refresh_rounded, size: 16),
-                                label: Text(
-                                  'Đặt lại bài tập quá sức (${_tooHeavyExercises.length} bài)',
-                                  style: const TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
@@ -2823,7 +2411,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                               scientificTargets,
                                             ).map((rec) {
                                               return _buildExerciseCard(
-                                                rec,
+                                                rec as Map<String, dynamic>,
                                                 scientificTargets,
                                                 caloriesPerExercise,
                                                 true,
@@ -2843,54 +2431,23 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                           as List<dynamic>? ??
                                       [];
 
-                                  // Lọc bài tập: Loại bỏ các bài tập bị quá sức hoặc bị chặn
-                                  List<dynamic> activeExercises = currentExercises.where((e) {
-                                    final type = e['type'] as ExerciseType;
-                                    return !_isExerciseBlocked(type, bmi, _age);
-                                  }).toList();
-
-                                  // Nếu tất cả các bài tập bị chặn hết, cung cấp một bài tập thay thế nhẹ nhàng
-                                  if (activeExercises.isEmpty && currentExercises.isNotEmpty) {
-                                    ExerciseType fallback = ExerciseType.plank;
-                                    if (_isExerciseBlocked(fallback, bmi, _age)) {
-                                      fallback = ExerciseType.squat;
-                                    }
-                                    if (_isExerciseBlocked(fallback, bmi, _age)) {
-                                      fallback = ExerciseType.jumping_jack;
-                                    }
-                                    activeExercises = [
-                                      {
-                                        'type': fallback,
-                                        'reason': 'Bài tập nhẹ nhàng thay thế (các bài tập khác quá sức hoặc bị chặn)'
-                                      }
-                                    ];
-                                  }
-
                                   if (currentExercises.isEmpty) {
-                                    if (isToday && !isRest) {
-                                      return Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          _buildModeSelector(),
-                                          if (_isCustomSelectionActive) ...[
-                                            _buildExerciseGroupSelector(
-                                              bmi,
-                                              _age,
-                                              selectedDayDate,
-                                            ),
-                                          ],
-                                        ],
+                                    if (isToday&&!isRest) {
+                                      return _buildExerciseGroupSelector(
+                                        bmi,
+                                        _age,
+                                        selectedDayDate,
                                       );
                                     }
                                     return const SizedBox.shrink();
                                   }
 
-                                  int totalExercises = activeExercises.length;
+                                  int totalExercises = currentExercises.length;
                                   int completedCount = 0;
                                   final List<String> completedList = [];
                                   final List<String> missingList = [];
 
-                                  for (var rec in activeExercises) {
+                                  for (var rec in currentExercises) {
                                     final ExerciseType type =
                                         rec['type'] as ExerciseType;
                                     final originalExercise = ExerciseDetail
@@ -2913,21 +2470,18 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      if (isToday && !isRest) ...[
-                                        _buildModeSelector(),
-                                        if (_isCustomSelectionActive) ...[
-                                          _buildExerciseGroupSelector(
-                                            bmi,
-                                            _age,
-                                            selectedDayDate,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          const Divider(
-                                            color: Colors.white10,
-                                            height: 1,
-                                          ),
-                                          const SizedBox(height: 12),
-                                        ],
+                                      if (isToday&&!isRest) ...[
+                                        _buildExerciseGroupSelector(
+                                          bmi,
+                                          _age,
+                                          selectedDayDate,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Divider(
+                                          color: Colors.white10,
+                                          height: 1,
+                                        ),
+                                        const SizedBox(height: 12),
                                         if (!_isCustomSelectionActive)
                                           Padding(
                                             padding: const EdgeInsets.only(
@@ -3058,7 +2612,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                                         color: Colors.white10,
                                         height: 24,
                                       ),
-                                      ...activeExercises.map((rec) {
+                                      ...currentExercises.map((rec) {
                                         return _buildExerciseCard(
                                           rec as Map<String, dynamic>,
                                           scientificTargets,
@@ -3277,6 +2831,24 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                       ),
                     ),
                   ),
+                  if (_heavyExercises.contains(type.name)) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => _removeHeavyExercise(type),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.errorRed.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: AppTheme.errorRed,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -3452,6 +3024,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             : null;
 
                         await _refreshTodayDraftWorkout();
+                        await _loadHeavyExercises();
                         if ((result == true || result == 'complete') &&
                             mounted) {
                           _toggleExerciseCompletedForDay(
