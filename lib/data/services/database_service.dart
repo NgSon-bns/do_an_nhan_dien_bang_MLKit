@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import '../../domain/exercise.dart';
 
 class DatabaseService {
   SupabaseClient get _client => Supabase.instance.client;
@@ -26,7 +27,24 @@ class DatabaseService {
     if (data != null && data.isNotEmpty) {
       try {
         final decoded = jsonDecode(data) as List;
-        return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final list = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+        // Tự động dọn dẹp các bài tập có ID không hợp lệ để tránh lỗi khóa ngoại (23503)
+        final validTypes = ExerciseType.values.map((e) => e.name).toSet();
+        final filteredList = list.where((item) {
+          final exerciseId = item['ma_bai_tap_rieng'] as String?;
+          if (exerciseId == null || !validTypes.contains(exerciseId)) {
+            print('[DatabaseService] Phát hiện và dọn dẹp bài tập offline có ID không hợp lệ: $exerciseId');
+            return false;
+          }
+          return true;
+        }).toList();
+
+        if (filteredList.length < list.length) {
+          await _saveLocalWorkouts(userId, filteredList);
+          print('[DatabaseService] Đã lưu lại danh sách bài tập offline sạch sau khi dọn dẹp.');
+        }
+        return filteredList;
       } catch (e) {
         debugPrint('Lỗi đọc lịch sử tập local: $e');
       }
@@ -42,18 +60,18 @@ class DatabaseService {
   Future<bool> syncPendingWorkouts() async {
     final user = _client.auth.currentUser;
     if (user == null) {
-      debugPrint('[syncPendingWorkouts] User is null. Hủy đồng bộ.');
+      print('[syncPendingWorkouts] User is null. Hủy đồng bộ.');
       return false;
     }
 
     final localList = await _getLocalWorkouts(user.id);
     final pendingList = localList.where((item) => item['is_synced'] == false).toList();
     if (pendingList.isEmpty) {
-      debugPrint('[syncPendingWorkouts] Không có bài tập nào đang chờ đồng bộ.');
+      print('[syncPendingWorkouts] Không có bài tập nào đang chờ đồng bộ.');
       return false;
     }
 
-    debugPrint('[syncPendingWorkouts] Phát hiện ${pendingList.length} bài tập đang chờ đồng bộ. Bắt đầu đẩy lên Cloud...');
+    print('[syncPendingWorkouts] Phát hiện ${pendingList.length} bài tập đang chờ đồng bộ. Bắt đầu đẩy lên Cloud...');
     bool anySuccess = false;
 
     for (var i = 0; i < localList.length; i++) {
@@ -73,7 +91,7 @@ class DatabaseService {
             rawImages = List<String>.from(item['danh_sach_anh_sai'] as List);
           }
 
-          debugPrint('[syncPendingWorkouts] Đang đẩy bài tập $rawExerciseId, reps $rawReps, date $rawDate');
+          print('[syncPendingWorkouts] Đang đẩy bài tập $rawExerciseId, reps $rawReps, date $rawDate');
 
           await _client.from('lich_su_tap_luyen').insert({
             'ma_nguoi_dung': user.id,
@@ -89,16 +107,22 @@ class DatabaseService {
 
           localList[i]['is_synced'] = true;
           anySuccess = true;
-          debugPrint('[syncPendingWorkouts] Đẩy bài tập $rawExerciseId thành công!');
+          print('[syncPendingWorkouts] Đẩy bài tập $rawExerciseId thành công!');
         } catch (e) {
-          debugPrint('[syncPendingWorkouts] Lỗi đẩy bài tập offline (sẽ tiếp tục thử lại): $e');
+          print('[syncPendingWorkouts] Lỗi đẩy bài tập offline (sẽ tiếp tục thử lại): $e');
+          if (e is PostgrestException && e.code == '23503') {
+            final String? invalidId = item['ma_bai_tap_rieng'] as String?;
+            print('[syncPendingWorkouts] Lỗi khóa ngoại 23503: Bài tập $invalidId không tồn tại trên Cloud. Bỏ qua bài này để tránh nghẽn.');
+            localList[i]['is_synced'] = true;
+            anySuccess = true;
+          }
         }
       }
     }
 
     if (anySuccess) {
       await _saveLocalWorkouts(user.id, localList);
-      debugPrint('[syncPendingWorkouts] Đã cập nhật trạng thái is_synced = true của các bài tập cục bộ.');
+      print('[syncPendingWorkouts] Đã cập nhật trạng thái is_synced = true của các bài tập cục bộ.');
     }
     return anySuccess;
   }

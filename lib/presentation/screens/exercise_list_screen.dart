@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 import 'package:demo/core/theme/app_theme.dart';
 import 'package:demo/domain/exercise.dart';
@@ -46,6 +47,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
   // Danh sách bài tập lấy từ database tiếng Việt (mặc định fallback về local list)
   List<ExerciseDetail> _exercisesList = ExerciseDetail.defaultExercises;
+  Timer? _syncTimer;
 
   @override
   void initState() {
@@ -54,6 +56,16 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     _loadCheckInData();
     _refreshTodayDraftWorkout();
     _loadExercisesFromDb();
+
+    _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _syncPendingData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _clearTodayDraftWorkout() async {
@@ -683,6 +695,29 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       // Reload dữ liệu khi quay lại từ trang cá nhân (đề phòng họ  cân nặng/chiều cao/họ tên)
       _loadDashboardData();
     });
+  }
+
+  Future<void> _syncPendingData() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null || user.id == 'guest') return;
+
+    try {
+      final bool didSync = await DatabaseService().syncPendingWorkouts();
+      if (didSync && mounted) {
+        // Sau khi sync thành công, cập nhật lại biểu đồ và chỉ số thống kê trên Dashboard
+        _loadDashboardData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Đã tự động đồng bộ kết quả tập luyện offline thành công!'),
+            backgroundColor: AppTheme.neonGreen,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('[DashboardSync] Đồng bộ lịch sử tập offline thất bại: $e');
+    }
   }
 
   @override

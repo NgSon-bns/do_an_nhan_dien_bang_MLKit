@@ -53,6 +53,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   List<String> _customMuscleGroupLoopHistory = [];
   Timer? _syncTimer;
 
+
   static const Map<String, List<ExerciseType>> _exerciseGroups = {
     'Thân trên': [ExerciseType.push_up, ExerciseType.plank],
     'Thân dưới': [ExerciseType.squat, ExerciseType.walking_lunge],
@@ -82,10 +83,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    await _loadUserProfile(); // Tải profile xong mới có BMI để sinh lịch trình
-    await _loadHeavyExercises();
-    await _loadAndSyncSchedule();
+    // 1. Khởi động Timer đồng bộ định kỳ ngay lập tức để không bị chặn bởi các cuộc gọi mạng
+    _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _syncPendingData();
+    });
 
+    // 2. Tải các dữ liệu cục bộ nhanh/offline
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
     _loadMealLogsForDay(selectedDate);
@@ -94,8 +97,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
 
-    _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _syncPendingData();
+    // 3. Gọi các hàm tải/đồng bộ mạng dưới nền (non-blocking)
+    _loadUserProfile().then((_) {
+      _loadHeavyExercises();
+      _loadAndSyncSchedule();
+    }).catchError((e) {
+      print('[_loadInitialData] Lỗi tải profile nền: $e');
     });
   }
 
@@ -533,9 +540,30 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _syncPendingData() async {
-    if (!_isSupabaseInitialized) return;
+    print('[syncPendingData] Đang kiểm tra trạng thái mạng và tài khoản...');
+    if (!_isSupabaseInitialized) {
+      print('[syncPendingData] Lỗi: Chưa khởi tạo Supabase');
+      return;
+    }
     final user = _client.auth.currentUser;
-    if (user == null || user.id == 'guest') return;
+    if (user == null || user.id == 'guest') {
+      print('[syncPendingData] User chưa đăng nhập hoặc là Guest. Bỏ qua đồng bộ.');
+      return;
+    }
+
+    // Cập nhật số lượng bài tập chưa sync cục bộ
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = prefs.getString('cached_completed_workouts_${user.id}');
+      int pendingCount = 0;
+      if (data != null && data.isNotEmpty) {
+        final List decoded = jsonDecode(data) as List;
+        pendingCount = decoded.where((item) => item['is_synced'] == false).length;
+      }
+      print('[syncPendingData] Số bài tập chưa đồng bộ: $pendingCount');
+    } catch (e) {
+      print('[syncPendingData] Lỗi đếm số bài tập chưa sync: $e');
+    }
 
     // 1. Đồng bộ profile nếu cần
     if (await _isProfileSyncPending()) {
@@ -554,9 +582,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               })
               .eq('ma_nguoi_dung', user.id);
           await _setProfileSyncPending(false);
-          debugPrint('Đã tự động đồng bộ Profile lên Database thành công!');
+          print('[syncPendingData] Đã tự động đồng bộ Profile lên Database thành công!');
         } catch (e) {
-          debugPrint('Đồng bộ Profile thất bại (tiếp tục chờ online): $e');
+          print('[syncPendingData] Đồng bộ Profile thất bại (tiếp tục chờ online): $e');
         }
       }
     }
@@ -572,15 +600,16 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             'du_lieu_lich_trinh': _encodeSchedule(_savedSchedule),
           }, onConflict: 'ma_nguoi_dung');
           await _setScheduleSyncPending(false);
-          debugPrint('Đã tự động đồng bộ Lịch trình lên Database thành công!');
+          print('[syncPendingData] Đã tự động đồng bộ Lịch trình lên Database thành công!');
         } catch (e) {
-          debugPrint('Đồng bộ Lịch trình thất bại (tiếp tục chờ online): $e');
+          print('[syncPendingData] Đồng bộ Lịch trình thất bại (tiếp tục chờ online): $e');
         }
       }
     }
     // 3. Đồng bộ lịch sử tập luyện hoàn thành (lich_su_tap_luyen) nếu có các buổi tập offline chưa đồng bộ
     try {
       final bool didSync = await DatabaseService().syncPendingWorkouts();
+
       if (didSync) {
         // Tải lại lịch sử tập của hôm nay và hôm qua để cập nhật giao diện
         final selectedDate = _getSelectedDayDate(_selectedDayIndex);
@@ -599,7 +628,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Đồng bộ lịch sử tập offline thất bại: $e');
+      print('[syncPendingData] Đồng bộ lịch sử tập offline thất bại: $e');
     }
   }
 
