@@ -497,7 +497,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // Cập nhật số lần lỗi tư thế khi chuyển đổi trạng thái từ Đúng sang Sai
     if (!result.isPostureCorrect && _wasPostureCorrectLastFrame) {
       _session.incorrectPostureCount++;
-      _captureIncorrectPose(pose, result.feedbackMessage ?? 'Sai tư thế');
+      _captureIncorrectPose(
+        pose,
+        result.feedbackMessage.isEmpty ? 'Sai tư thế' : result.feedbackMessage,
+      );
     }
 
     if (result.shouldCountRep) {
