@@ -247,7 +247,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         for (var row in dbData) {
           final String ma = row['ma_bai_tap'] as String;
           final localEx = ExerciseDetail.defaultExercises.firstWhere(
-            (e) => e.type.name == _mapIdToTypeName(ma),
+            (e) => e.type.name == ma,
             orElse: () => ExerciseDetail.defaultExercises.first,
           );
 
@@ -306,19 +306,6 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       }
     } catch (e) {
       debugPrint('Lỗi tải bài tập động: $e');
-    }
-  }
-
-  String _mapIdToTypeName(String id) {
-    switch (id) {
-      case 'push_up':
-        return 'pushUp';
-      case 'walking_lunge':
-        return 'walkingLunge';
-      case 'jumping_jack':
-        return 'jumpingJack';
-      default:
-        return id;
     }
   }
 
