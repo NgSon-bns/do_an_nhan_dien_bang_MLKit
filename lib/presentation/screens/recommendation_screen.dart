@@ -1589,6 +1589,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       final Set<String> completedExerciseNames = {};
 
       for (final row in completedRecords) {
+        final String? sourceTag = row['source_tag'] as String? ?? row['loai_bai_tap'] as String?;
+        // Chỉ tính các bài tập được kích hoạt từ HLV AI (hoặc tích thủ công trong AI HLV)
+        if (sourceTag != 'recommended') {
+          continue;
+        }
+
         final String? maBaiTapRieng =
             row['ma_bai_tap_rieng'] as String? ?? row['exercise_id'] as String?;
         final int soLanTap =
