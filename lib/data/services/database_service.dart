@@ -41,41 +41,64 @@ class DatabaseService {
 
   Future<bool> syncPendingWorkouts() async {
     final user = _client.auth.currentUser;
-    if (user == null) return false;
+    if (user == null) {
+      debugPrint('[syncPendingWorkouts] User is null. Hủy đồng bộ.');
+      return false;
+    }
 
     final localList = await _getLocalWorkouts(user.id);
     final pendingList = localList.where((item) => item['is_synced'] == false).toList();
-    if (pendingList.isEmpty) return false;
+    if (pendingList.isEmpty) {
+      debugPrint('[syncPendingWorkouts] Không có bài tập nào đang chờ đồng bộ.');
+      return false;
+    }
 
-    debugPrint('Đang tự động đồng bộ ${pendingList.length} lịch sử tập luyện lên Cloud...');
+    debugPrint('[syncPendingWorkouts] Phát hiện ${pendingList.length} bài tập đang chờ đồng bộ. Bắt đầu đẩy lên Cloud...');
     bool anySuccess = false;
 
     for (var i = 0; i < localList.length; i++) {
       final item = localList[i];
       if (item['is_synced'] == false) {
         try {
+          final String? rawExerciseId = item['ma_bai_tap_rieng'];
+          final int rawReps = (item['so_lan_tap'] as num?)?.toInt() ?? 0;
+          final int rawDuration = (item['thoi_gian_tap'] as num?)?.toInt() ?? 0;
+          final double rawCalories = (item['calo_tieu_hao'] as num?)?.toDouble() ?? 0.0;
+          final int rawIncorrect = (item['so_lan_sai_tu_the'] as num?)?.toInt() ?? 0;
+          final String? rawSource = item['loai_bai_tap'];
+          final String? rawDate = item['ngay_tao'];
+          
+          List<String>? rawImages;
+          if (item['danh_sach_anh_sai'] != null) {
+            rawImages = List<String>.from(item['danh_sach_anh_sai'] as List);
+          }
+
+          debugPrint('[syncPendingWorkouts] Đang đẩy bài tập $rawExerciseId, reps $rawReps, date $rawDate');
+
           await _client.from('lich_su_tap_luyen').insert({
             'ma_nguoi_dung': user.id,
-            'ma_bai_tap_rieng': item['ma_bai_tap_rieng'],
-            'so_lan_tap': item['so_lan_tap'],
-            'thoi_gian_tap': item['thoi_gian_tap'],
-            'calo_tieu_hao': item['calo_tieu_hao'],
-            'so_lan_sai_tu_the': item['so_lan_sai_tu_the'],
-            'danh_sach_anh_sai': item['danh_sach_anh_sai'],
-            'loai_bai_tap': item['loai_bai_tap'],
-            'ngay_tao': item['ngay_tao'],
+            'ma_bai_tap_rieng': rawExerciseId,
+            'so_lan_tap': rawReps,
+            'thoi_gian_tap': rawDuration,
+            'calo_tieu_hao': rawCalories,
+            'so_lan_sai_tu_the': rawIncorrect,
+            'danh_sach_anh_sai': rawImages,
+            'loai_bai_tap': rawSource,
+            'ngay_tao': rawDate,
           });
+
           localList[i]['is_synced'] = true;
           anySuccess = true;
+          debugPrint('[syncPendingWorkouts] Đẩy bài tập $rawExerciseId thành công!');
         } catch (e) {
-          debugPrint('Đồng bộ lịch sử tập luyện offline thất bại (tiếp tục chờ online): $e');
+          debugPrint('[syncPendingWorkouts] Lỗi đẩy bài tập offline (sẽ tiếp tục thử lại): $e');
         }
       }
     }
 
     if (anySuccess) {
       await _saveLocalWorkouts(user.id, localList);
-      debugPrint('Đã đồng bộ lịch sử tập luyện thành công!');
+      debugPrint('[syncPendingWorkouts] Đã cập nhật trạng thái is_synced = true của các bài tập cục bộ.');
     }
     return anySuccess;
   }

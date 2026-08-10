@@ -94,7 +94,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
 
-    _syncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _syncPendingData();
     });
   }
@@ -3375,6 +3375,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                             isManual: false,
                           );
                           await _loadCompletedExercisesForDay(selectedDayDate);
+                          await _syncPendingData();
                         }
                       },
                       style: ElevatedButton.styleFrom(
