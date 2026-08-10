@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:demo/core/theme/app_theme.dart';
 import 'package:demo/domain/exercise.dart';
@@ -48,6 +49,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   bool _isCustomSelectionActive = false;
   final Set<ExerciseType> _tooHeavyExercises = {};
   List<String> _customMuscleGroupLoopHistory = [];
+  Timer? _syncTimer;
 
   static const Map<String, List<ExerciseType>> _exerciseGroups = {
     'Thân trên': [ExerciseType.push_up, ExerciseType.plank],
@@ -76,6 +78,16 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
+
+    _syncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _syncPendingData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadInitialData() async {
@@ -139,32 +151,38 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       }
     }
 
-    // 2. Fetch từ Supabase (nếu online) và merge
+    // 2. Fetch từ Supabase (nếu online và không có thay đổi offline chưa đồng bộ)
     if (_isSupabaseInitialized && user?.id != 'guest') {
-      try {
-        final client = Supabase.instance.client;
-        final response = await client
-            .from('lich_trinh_de_xuat')
-            .select('du_lieu_lich_trinh')
-            .eq('ma_nguoi_dung', user!.id)
-            .maybeSingle();
+      final isPending = await _isScheduleSyncPending();
+      if (!isPending) {
+        try {
+          final client = Supabase.instance.client;
+          final response = await client
+              .from('lich_trinh_de_xuat')
+              .select('du_lieu_lich_trinh')
+              .eq('ma_nguoi_dung', user!.id)
+              .maybeSingle();
 
-        if (response != null && response['du_lieu_lich_trinh'] != null) {
-          tempSchedule = _decodeSchedule(
-            response['du_lieu_lich_trinh'] as List<dynamic>,
-          );
-          hasLocal = true;
-          // Cập nhật lại cache local
-          await prefs.setString(
-            localKey,
-            jsonEncode(_encodeSchedule(tempSchedule)),
-          );
-        } else if (hasLocal) {
-          // Có local nhưng chưa có DB -> đẩy lên DB
-          await _syncScheduleToDb(tempSchedule);
+          if (response != null && response['du_lieu_lich_trinh'] != null) {
+            tempSchedule = _decodeSchedule(
+              response['du_lieu_lich_trinh'] as List<dynamic>,
+            );
+            hasLocal = true;
+            // Cập nhật lại cache local
+            await prefs.setString(
+              localKey,
+              jsonEncode(_encodeSchedule(tempSchedule)),
+            );
+          } else if (hasLocal) {
+            // Có local nhưng chưa có DB -> đẩy lên DB
+            await _syncScheduleToDb(tempSchedule);
+          }
+        } catch (e) {
+          debugPrint('Lỗi tải lịch trình DB (Offline mode): $e');
         }
-      } catch (e) {
-        debugPrint('Lỗi tải lịch trình DB (Offline mode): $e');
+      } else {
+        // Cố gắng đồng bộ lên DB ngay khi mạng kết nối lại
+        _syncPendingData();
       }
     }
 
@@ -206,7 +224,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     await _syncScheduleToDb(sched);
   }
 
-  // Đẩy lịch trình lên DB (chạy nền)
   Future<void> _syncScheduleToDb(List<Map<String, dynamic>> sched) async {
     if (!_isSupabaseInitialized) return;
     final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -218,8 +235,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         'ngay_cap_nhat': DateTime.now().toIso8601String(),
         'du_lieu_lich_trinh': _encodeSchedule(sched),
       }, onConflict: 'ma_nguoi_dung');
+      await _setScheduleSyncPending(false);
     } catch (e) {
       debugPrint('Mất mạng, chưa đồng bộ lên Database được: $e');
+      await _setScheduleSyncPending(true);
     }
   }
 
@@ -345,6 +364,110 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final previousDay = selectedDayDate.subtract(const Duration(days: 1));
     return !_isExerciseBlocked(type, bmi, age) &&
         !_isExerciseDoneOnDate(type, previousDay);
+  }
+
+  Future<void> _saveProfileLocally(Map<String, dynamic> profile) async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'cached_profile_${user?.id ?? 'guest'}';
+    await prefs.setString(key, jsonEncode(profile));
+  }
+
+  Future<Map<String, dynamic>?> _loadProfileLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'cached_profile_${user?.id ?? 'guest'}';
+    final data = prefs.getString(key);
+    if (data != null && data.isNotEmpty) {
+      try {
+        return jsonDecode(data) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('Lỗi giải mã profile local: $e');
+      }
+    }
+    return null;
+  }
+
+  Future<void> _setProfileSyncPending(bool pending) async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'profile_sync_pending_${user?.id ?? 'guest'}';
+    await prefs.setBool(key, pending);
+  }
+
+  Future<bool> _isProfileSyncPending() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'profile_sync_pending_${user?.id ?? 'guest'}';
+    return prefs.getBool(key) ?? false;
+  }
+
+  Future<void> _setScheduleSyncPending(bool pending) async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'schedule_sync_pending_${user?.id ?? 'guest'}';
+    await prefs.setBool(key, pending);
+  }
+
+  Future<bool> _isScheduleSyncPending() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = _client.auth.currentUser;
+    final key = 'schedule_sync_pending_${user?.id ?? 'guest'}';
+    return prefs.getBool(key) ?? false;
+  }
+
+  Future<void> _syncPendingData() async {
+    if (!_isSupabaseInitialized) return;
+    final user = _client.auth.currentUser;
+    if (user == null || user.id == 'guest') return;
+
+    // 1. Đồng bộ profile nếu cần
+    if (await _isProfileSyncPending()) {
+      final local = await _loadProfileLocally();
+      if (local != null) {
+        try {
+          final client = Supabase.instance.client;
+          await client
+              .from('ho_so_nguoi_dung')
+              .update({
+                'chieu_cao': local['chieu_cao'],
+                'can_nang': local['can_nang'],
+                'tuoi': local['tuoi'],
+                'gioi_tinh': local['gioi_tinh'],
+                'muc_tieu': local['muc_tieu'],
+              })
+              .eq('ma_nguoi_dung', user.id);
+          await _setProfileSyncPending(false);
+          debugPrint('Đã tự động đồng bộ Profile lên Database thành công!');
+        } catch (e) {
+          debugPrint('Đồng bộ Profile thất bại (tiếp tục chờ online): $e');
+        }
+      }
+    }
+
+    // 2. Đồng bộ lịch trình nếu cần
+    if (await _isScheduleSyncPending()) {
+      if (_savedSchedule.isNotEmpty) {
+        try {
+          final client = Supabase.instance.client;
+          await client.from('lich_trinh_de_xuat').upsert({
+            'ma_nguoi_dung': user.id,
+            'ngay_cap_nhat': DateTime.now().toIso8601String(),
+            'du_lieu_lich_trinh': _encodeSchedule(_savedSchedule),
+          }, onConflict: 'ma_nguoi_dung');
+          await _setScheduleSyncPending(false);
+          debugPrint('Đã tự động đồng bộ Lịch trình lên Database thành công!');
+        } catch (e) {
+          debugPrint('Đồng bộ Lịch trình thất bại (tiếp tục chờ online): $e');
+        }
+      }
+    }
+    // 3. Đồng bộ lịch sử tập luyện hoàn thành (lich_su_tap_luyen) nếu có các buổi tập offline chưa đồng bộ
+    try {
+      await DatabaseService().syncPendingWorkouts();
+    } catch (e) {
+      debugPrint('Đồng bộ lịch sử tập offline thất bại: $e');
+    }
   }
 
   Future<void> _loadPreferencesData() async {
@@ -1081,14 +1204,32 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _loadUserProfile() async {
+    // 1. Tải Profile từ Local Cache trước để giao diện hiện lập tức (Offline-first)
+    final localProfile = await _loadProfileLocally();
+    if (localProfile != null) {
+      if (mounted) {
+        setState(() {
+          _userName = localProfile['ho_ten'] ?? 'Trainer';
+          _weight = (localProfile['can_nang'] as num?)?.toDouble() ?? 65.0;
+          _height = (localProfile['chieu_cao'] as num?)?.toDouble() ?? 170.0;
+          _age = (localProfile['tuoi'] as num?)?.toInt() ?? 25;
+          _gender = localProfile['gioi_tinh'] ?? 'male';
+          _selectedGoal = localProfile['muc_tieu'] ?? 'maintain';
+          _isLoading = false;
+        });
+      }
+    }
+
     if (!_isSupabaseInitialized) {
-      setState(() {
-        _weight = 65.0;
-        _height = 170.0;
-        _age = 25;
-        _userName = 'Khách (Offline)';
-        _isLoading = false;
-      });
+      if (localProfile == null) {
+        setState(() {
+          _weight = 65.0;
+          _height = 170.0;
+          _age = 25;
+          _userName = 'Khách (Offline)';
+          _isLoading = false;
+        });
+      }
       return;
     }
 
@@ -1099,45 +1240,56 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     try {
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null && mounted) {
-        setState(() {
-          _userName = profile['ho_ten'] ?? 'Trainer';
-          _weight = (profile['can_nang'] as num?)?.toDouble() ?? 0.0;
-          _height = (profile['chieu_cao'] as num?)?.toDouble() ?? 0.0;
-          _age = (profile['tuoi'] as num?)?.toInt() ?? 0;
-          _gender = profile['gioi_tinh'] ?? 'male';
+        // Chỉ cập nhật từ DB nếu không có chỉnh sửa offline đang chờ đồng bộ
+        if (!(await _isProfileSyncPending())) {
+          setState(() {
+            _userName = profile['ho_ten'] ?? 'Trainer';
+            _weight = (profile['can_nang'] as num?)?.toDouble() ?? 65.0;
+            _height = (profile['chieu_cao'] as num?)?.toDouble() ?? 170.0;
+            _age = (profile['tuoi'] as num?)?.toInt() ?? 25;
+            _gender = profile['gioi_tinh'] ?? 'male';
 
-          if (_weight == 0.0) _weight = 65.0;
-          if (_height == 0.0) _height = 170.0;
-          if (_age == 0) _age = 25;
+            final String? dbGoal = profile['muc_tieu'] ?? profile['fitness_goal'];
+            double bmi = _weight / ((_height / 100) * (_height / 100));
 
-          final String? dbGoal = profile['muc_tieu'] ?? profile['fitness_goal'];
-          double bmi = _weight / ((_height / 100) * (_height / 100));
-
-          if (bmi >= 25.0) {
-            _selectedGoal = 'lose';
-          } else if (bmi < 18.5) {
-            _selectedGoal = 'build';
-          } else {
-            if (dbGoal == 'maintain' || dbGoal == 'build') {
-              _selectedGoal = dbGoal!;
+            if (bmi >= 25.0) {
+              _selectedGoal = 'lose';
+            } else if (bmi < 18.5) {
+              _selectedGoal = 'build';
             } else {
-              _selectedGoal = 'maintain';
+              if (dbGoal == 'maintain' || dbGoal == 'build') {
+                _selectedGoal = dbGoal!;
+              } else {
+                _selectedGoal = 'maintain';
+              }
             }
-          }
 
-          if (_selectedGoal != dbGoal) {
-            _updateGoal(_selectedGoal, currentBmi: bmi);
-          }
-        });
+            if (_selectedGoal != dbGoal) {
+              _updateGoal(_selectedGoal, currentBmi: bmi);
+            }
+          });
+
+          // Lưu cache mới nhất
+          await _saveProfileLocally({
+            'ho_ten': _userName,
+            'can_nang': _weight,
+            'chieu_cao': _height,
+            'tuoi': _age,
+            'gioi_tinh': _gender,
+            'muc_tieu': _selectedGoal,
+          });
+        }
       }
     } catch (e) {
-      debugPrint('Lỗi tải hồ sơ đề xuất: $e');
+      debugPrint('Lỗi tải hồ sơ đề xuất từ Cloud (Dùng local cache): $e');
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
+      // Thử tự động đồng bộ dữ liệu ngoại tuyến nếu có mạng lại
+      _syncPendingData();
     }
   }
 
@@ -1151,25 +1303,53 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       _isLoading = true;
     });
 
-    try {
-      double newBmi = newHeight > 0
-          ? newWeight / ((newHeight / 100) * (newHeight / 100))
-          : 0.0;
-      String nextGoal = _selectedGoal;
-      if (!isGoalAllowedForBmi(_selectedGoal, newBmi)) {
-        if (newBmi >= 25.0) {
-          nextGoal = 'lose';
-        } else if (newBmi < 18.5) {
-          nextGoal = 'build';
-        } else {
-          nextGoal = 'maintain';
-        }
+    double newBmi = newHeight > 0
+        ? newWeight / ((newHeight / 100) * (newHeight / 100))
+        : 0.0;
+    String nextGoal = _selectedGoal;
+    if (!isGoalAllowedForBmi(_selectedGoal, newBmi)) {
+      if (newBmi >= 25.0) {
+        nextGoal = 'lose';
+      } else if (newBmi < 18.5) {
+        nextGoal = 'build';
+      } else {
+        nextGoal = 'maintain';
       }
+    }
 
-      if (_isSupabaseInitialized) {
-        final client = Supabase.instance.client;
-        final userId = client.auth.currentUser?.id;
-        if (userId != null) {
+    // 1. Cập nhật State cục bộ lập tức
+    setState(() {
+      _height = newHeight;
+      _weight = newWeight;
+      _age = newAge;
+      _gender = newGender;
+    });
+
+    // 2. Lưu vào Cache cục bộ lập tức
+    final localProfile = {
+      'chieu_cao': newHeight,
+      'can_nang': newWeight,
+      'tuoi': newAge,
+      'gioi_tinh': newGender,
+      'muc_tieu': nextGoal,
+      'ho_ten': _userName,
+    };
+    await _saveProfileLocally(localProfile);
+
+    // 3. Cập nhật lịch trình cục bộ lập tức
+    if (nextGoal != _selectedGoal) {
+      await _updateGoal(nextGoal, currentBmi: newBmi);
+    } else {
+      await _triggerScheduleUpdateFromToday(newBmi);
+    }
+
+    // 4. Đồng bộ lên Supabase
+    bool syncSuccess = false;
+    if (_isSupabaseInitialized) {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId != null) {
+        try {
           await client
               .from('ho_so_nguoi_dung')
               .update({
@@ -1179,33 +1359,34 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 'gioi_tinh': newGender,
               })
               .eq('ma_nguoi_dung', userId);
+          syncSuccess = true;
+          await _setProfileSyncPending(false);
+        } catch (e) {
+          debugPrint('Lỗi đồng bộ hồ sơ thể chất (Sẽ lưu offline): $e');
+          await _setProfileSyncPending(true);
         }
       }
+    }
 
-      setState(() {
-        _height = newHeight;
-        _weight = newWeight;
-        _age = newAge;
-        _gender = newGender;
-      });
+    setState(() {
+      _isLoading = false;
+    });
 
-      if (nextGoal != _selectedGoal) {
-        await _updateGoal(nextGoal, currentBmi: newBmi);
+    if (mounted) {
+      if (syncSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Đã cập nhật chỉ số thể chất thành công!'),
+            backgroundColor: AppTheme.neonGreen,
+          ),
+        );
       } else {
-        await _triggerScheduleUpdateFromToday(newBmi);
-      }
-    } catch (e) {
-      debugPrint('Lỗi cập nhật chỉ số thể chất: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Lỗi cập nhật: $e')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mất mạng. Đã lưu ngoại tuyến, tự động đồng bộ khi có Internet!'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
       }
     }
   }
@@ -1220,18 +1401,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         (_height > 0 ? _weight / ((_height / 100) * (_height / 100)) : 0.0);
     await _triggerScheduleUpdateFromToday(bmi);
 
-    if (!_isSupabaseInitialized) return;
-    try {
+    // Lưu cục bộ mục tiêu mới
+    final currentLocal = await _loadProfileLocally() ?? {};
+    currentLocal['muc_tieu'] = newGoal;
+    await _saveProfileLocally(currentLocal);
+
+    if (_isSupabaseInitialized) {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
       if (userId != null) {
-        await client
-            .from('ho_so_nguoi_dung')
-            .update({'muc_tieu': newGoal})
-            .eq('ma_nguoi_dung', userId);
+        try {
+          await client
+              .from('ho_so_nguoi_dung')
+              .update({'muc_tieu': newGoal})
+              .eq('ma_nguoi_dung', userId);
+          await _setProfileSyncPending(false);
+        } catch (e) {
+          debugPrint('Lỗi đồng bộ mục tiêu (Sẽ lưu offline): $e');
+          await _setProfileSyncPending(true);
+        }
       }
-    } catch (e) {
-      debugPrint('Lỗi đồng bộ mục tiêu lên DB: $e');
     }
   }
 

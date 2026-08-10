@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class DatabaseService {
   SupabaseClient get _client => Supabase.instance.client;
@@ -18,7 +20,66 @@ class DatabaseService {
     }
   }
 
-  /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL (Tiếng Việt)
+  Future<List<Map<String, dynamic>>> _getLocalWorkouts(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getString('cached_completed_workouts_$userId');
+    if (data != null && data.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(data) as List;
+        return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } catch (e) {
+        debugPrint('Lỗi đọc lịch sử tập local: $e');
+      }
+    }
+    return [];
+  }
+
+  Future<void> _saveLocalWorkouts(String userId, List<Map<String, dynamic>> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cached_completed_workouts_$userId', jsonEncode(list));
+  }
+
+  Future<void> syncPendingWorkouts() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    final localList = await _getLocalWorkouts(user.id);
+    final pendingList = localList.where((item) => item['is_synced'] == false).toList();
+    if (pendingList.isEmpty) return;
+
+    debugPrint('Đang tự động đồng bộ ${pendingList.length} lịch sử tập luyện lên Cloud...');
+    bool anySuccess = false;
+
+    for (var i = 0; i < localList.length; i++) {
+      final item = localList[i];
+      if (item['is_synced'] == false) {
+        try {
+          await _client.from('lich_su_tap_luyen').insert({
+            'ma_nguoi_dung': user.id,
+            'ma_bai_tap_rieng': item['ma_bai_tap_rieng'],
+            'so_lan_tap': item['so_lan_tap'],
+            'thoi_gian_tap': item['thoi_gian_tap'],
+            'calo_tieu_hao': item['calo_tieu_hao'],
+            'so_lan_sai_tu_the': item['so_lan_sai_tu_the'],
+            'danh_sach_anh_sai': item['danh_sach_anh_sai'],
+            'loai_bai_tap': item['loai_bai_tap'],
+            'ngay_tao': item['ngay_tao'],
+          });
+          localList[i]['is_synced'] = true;
+          anySuccess = true;
+        } catch (e) {
+          debugPrint('Đồng bộ lịch sử tập luyện offline thất bại (tiếp tục chờ online): $e');
+        }
+      }
+    }
+
+    if (anySuccess) {
+      await _saveLocalWorkouts(user.id, localList);
+      debugPrint('Đã đồng bộ lịch sử tập luyện thành công!');
+    }
+  }
+
+  /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL (Offline-first)
   Future<void> saveWorkoutResult({
     required String exerciseType,
     required int repsCount,
@@ -31,6 +92,29 @@ class DatabaseService {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
+    final String loaiBaiTap = sourceTag != null && sourceTag.startsWith('recommended:')
+        ? 'recommended'
+        : 'custom';
+    final String nowStr = DateTime.now().toUtc().toIso8601String();
+
+    // 1. Lưu cục bộ trước (Offline-first)
+    final localList = await _getLocalWorkouts(user.id);
+    final Map<String, dynamic> newRecord = {
+      'ma_nguoi_dung': user.id,
+      'ma_bai_tap_rieng': exerciseType,
+      'so_lan_tap': repsCount,
+      'thoi_gian_tap': durationSeconds,
+      'calo_tieu_hao': caloriesBurned,
+      'so_lan_sai_tu_the': incorrectPostures,
+      'danh_sach_anh_sai': danhSachAnhSai,
+      'loai_bai_tap': loaiBaiTap,
+      'ngay_tao': nowStr,
+      'is_synced': false,
+    };
+    localList.add(newRecord);
+    await _saveLocalWorkouts(user.id, localList);
+
+    // 2. Thử đẩy lên database Supabase
     try {
       await _client.from('lich_su_tap_luyen').insert({
         'ma_nguoi_dung': user.id,
@@ -40,13 +124,14 @@ class DatabaseService {
         'calo_tieu_hao': caloriesBurned,
         'so_lan_sai_tu_the': incorrectPostures,
         'danh_sach_anh_sai': danhSachAnhSai,
-        'loai_bai_tap':
-            sourceTag != null && sourceTag.startsWith('recommended:')
-            ? 'recommended'
-            : 'custom',
+        'loai_bai_tap': loaiBaiTap,
+        'ngay_tao': nowStr,
       });
+      // Nếu thành công, cập nhật cờ is_synced thành true
+      newRecord['is_synced'] = true;
+      await _saveLocalWorkouts(user.id, localList);
     } catch (e) {
-      debugPrint('Lỗi đồng bộ lịch sử tập: $e');
+      debugPrint('Lỗi đồng bộ lịch sử tập (đã lưu offline): $e');
     }
   }
 
@@ -92,6 +177,31 @@ class DatabaseService {
     final user = _client.auth.currentUser;
     if (user == null) return [];
 
+    final String targetDateStr =
+        '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+    // 1. Tải từ Cache local trước
+    final localList = await _getLocalWorkouts(user.id);
+    final List<Map<String, dynamic>> filteredLocal = [];
+    for (var row in localList) {
+      final String? createdAtStr = row['ngay_tao'] as String?;
+      if (createdAtStr != null) {
+        final DateTime localDateTime = DateTime.parse(createdAtStr).toLocal();
+        final String localDateStr =
+            '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
+
+        if (localDateStr == targetDateStr) {
+          filteredLocal.add({
+            'exercise_id': (row['ma_bai_tap_rieng'] as String?) ?? '',
+            'reps_count': (row['so_lan_tap'] as num?)?.toInt() ?? 0,
+            'source_tag': (row['loai_bai_tap'] as String?) ?? '',
+            'ngay_tao': createdAtStr,
+          });
+        }
+      }
+    }
+
+    // 2. Thử truy cập Supabase
     try {
       final startQuery = DateTime.utc(
         day.year,
@@ -111,10 +221,7 @@ class DatabaseService {
           .gte('ngay_tao', startQuery.toIso8601String())
           .lt('ngay_tao', endQuery.toIso8601String());
 
-      final String targetDateStr =
-          '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
-      final List<Map<String, dynamic>> filteredList = [];
-
+      final List<Map<String, dynamic>> filteredCloud = [];
       for (var row in data) {
         final String? createdAtStr = row['ngay_tao'] as String?;
         if (createdAtStr != null) {
@@ -123,19 +230,31 @@ class DatabaseService {
               '${localDateTime.year}-${localDateTime.month.toString().padLeft(2, '0')}-${localDateTime.day.toString().padLeft(2, '0')}';
 
           if (localDateStr == targetDateStr) {
-            filteredList.add({
+            filteredCloud.add({
               'exercise_id': (row['ma_bai_tap_rieng'] as String?) ?? '',
               'reps_count': (row['so_lan_tap'] as num?)?.toInt() ?? 0,
               'source_tag': (row['loai_bai_tap'] as String?) ?? '',
+              'ngay_tao': createdAtStr,
             });
           }
         }
       }
 
-      return filteredList;
+      // Merge Cloud & Local (tránh trùng dựa trên exercise_id và ngay_tao)
+      final mergedList = List<Map<String, dynamic>>.from(filteredLocal);
+      for (var cloudItem in filteredCloud) {
+        final alreadyExists = mergedList.any((localItem) =>
+            localItem['exercise_id'] == cloudItem['exercise_id'] &&
+            localItem['ngay_tao'] == cloudItem['ngay_tao']);
+        if (!alreadyExists) {
+          mergedList.add(cloudItem);
+        }
+      }
+
+      return mergedList;
     } catch (e) {
-      debugPrint('Lỗi truy vấn lịch sử theo ngày: $e');
-      return [];
+      debugPrint('Lỗi truy vấn lịch sử theo ngày (Dùng local cache): $e');
+      return filteredLocal;
     }
   }
 
