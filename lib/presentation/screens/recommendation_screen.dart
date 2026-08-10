@@ -757,6 +757,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _age,
           _selectedGoal,
           _gender,
+          exerciseCount: _customSelectedExercises.isNotEmpty
+              ? _customSelectedExercises.length
+              : 4,
         );
         final customList = _buildCustomExerciseList(scientificTargets);
         
@@ -843,6 +846,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _age,
           _selectedGoal,
           _gender,
+          exerciseCount: _customSelectedExercises.isNotEmpty
+              ? _customSelectedExercises.length
+              : 4,
         );
         final customList = _buildCustomExerciseList(scientificTargets);
 
@@ -1807,8 +1813,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     double height,
     int age,
     String goal,
-    String gender,
-  ) {
+    String gender, {
+    int exerciseCount = 4,
+  }) {
     double bmi = weight / ((height / 100) * (height / 100));
     double bmr = 0.0;
     if (gender.toLowerCase() == 'female') {
@@ -1860,7 +1867,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
 
     targetWorkoutCalories = targetWorkoutCalories.clamp(80, 350);
-    final double caloriesPerExercise = targetWorkoutCalories / 4;
+    final double caloriesPerExercise = targetWorkoutCalories / (exerciseCount > 0 ? exerciseCount : 4);
     final Map<ExerciseType, int> computedTargets = {};
     double weightFactor = weight / 70.0;
 
@@ -2149,14 +2156,20 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final selectedDayData = _savedSchedule[selectedDayIndex];
     final selectedDayDate = _getSelectedDayDate(selectedDayIndex);
 
+    final List? selectedExercisesList = selectedDayData['exercises'] as List?;
+    final int exerciseCount = (selectedExercisesList != null && selectedExercisesList.isNotEmpty)
+        ? selectedExercisesList.length
+        : 4;
+
     final scientificTargets = _calculateScientificReps(
       _weight,
       _height,
       _age,
       _selectedGoal,
       _gender,
+      exerciseCount: exerciseCount,
     );
-    final double caloriesPerExercise = targetWorkoutCalories / 4;
+    final double caloriesPerExercise = targetWorkoutCalories / (exerciseCount > 0 ? exerciseCount : 4);
 
     return Scaffold(
       body: SafeArea(
