@@ -580,7 +580,24 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
     // 3. Đồng bộ lịch sử tập luyện hoàn thành (lich_su_tap_luyen) nếu có các buổi tập offline chưa đồng bộ
     try {
-      await DatabaseService().syncPendingWorkouts();
+      final bool didSync = await DatabaseService().syncPendingWorkouts();
+      if (didSync) {
+        // Tải lại lịch sử tập của hôm nay và hôm qua để cập nhật giao diện
+        final selectedDate = _getSelectedDayDate(_selectedDayIndex);
+        await _loadCompletedExercisesForDay(selectedDate);
+        final yesterday = selectedDate.subtract(const Duration(days: 1));
+        await _loadCompletedExercisesForDay(yesterday);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đã tự động đồng bộ kết quả tập luyện offline thành công!'),
+              backgroundColor: AppTheme.neonGreen,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
     } catch (e) {
       debugPrint('Đồng bộ lịch sử tập offline thất bại: $e');
     }
@@ -1460,8 +1477,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       final Set<String> completedExerciseNames = {};
 
       for (final row in completedRecords) {
-        final String? loaiBaiTap =
-            row['loai_bai_tap'] as String? ?? row['source_tag'] as String?;
         final String? maBaiTapRieng =
             row['ma_bai_tap_rieng'] as String? ?? row['exercise_id'] as String?;
         final int soLanTap =
@@ -1469,14 +1484,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             (row['reps_count'] as num?)?.toInt() ??
             0;
 
-        final bool isRecommended =
-            loaiBaiTap != null &&
-            (loaiBaiTap.toLowerCase() == 'recommended' ||
-                loaiBaiTap.toLowerCase().startsWith('recommended:'));
-
         String exerciseName = maBaiTapRieng ?? '';
 
-        if (isRecommended && exerciseName.isNotEmpty && soLanTap > 0) {
+        if (exerciseName.isNotEmpty && soLanTap > 0) {
           final exerciseType = _exerciseTypeFromName(exerciseName);
           if (exerciseType != null) {
             completedExerciseNames.add(exerciseType.name);

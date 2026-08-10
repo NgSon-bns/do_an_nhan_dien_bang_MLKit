@@ -39,13 +39,13 @@ class DatabaseService {
     await prefs.setString('cached_completed_workouts_$userId', jsonEncode(list));
   }
 
-  Future<void> syncPendingWorkouts() async {
+  Future<bool> syncPendingWorkouts() async {
     final user = _client.auth.currentUser;
-    if (user == null) return;
+    if (user == null) return false;
 
     final localList = await _getLocalWorkouts(user.id);
     final pendingList = localList.where((item) => item['is_synced'] == false).toList();
-    if (pendingList.isEmpty) return;
+    if (pendingList.isEmpty) return false;
 
     debugPrint('Đang tự động đồng bộ ${pendingList.length} lịch sử tập luyện lên Cloud...');
     bool anySuccess = false;
@@ -77,6 +77,7 @@ class DatabaseService {
       await _saveLocalWorkouts(user.id, localList);
       debugPrint('Đã đồng bộ lịch sử tập luyện thành công!');
     }
+    return anySuccess;
   }
 
   /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL (Offline-first)
