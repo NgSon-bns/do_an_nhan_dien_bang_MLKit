@@ -58,14 +58,11 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
       bool rightArmUp = rightWrist!.y < rightShoulder.y;
       bool armsAreUp = leftArmUp && rightArmUp;
 
-      // Chuẩn hóa khoảng cách tay xuống dưới vai dựa theo chiều rộng vai thay vì 50px cố định
-      double armDownThreshold = shoulderWidth * 0.4;
-      bool armsAreDown =
-          (leftWrist.y > leftShoulder.y + armDownThreshold) &&
-          (rightWrist.y > rightShoulder.y + armDownThreshold);
+      // Đơn giản hóa: Tay hạ xuống dưới vai
+      bool armsAreDown = leftWrist.y > leftShoulder.y && rightWrist.y > rightShoulder.y;
 
-      bool feetAreWide = feetRatio > 1.45; // Tăng độ nhạy (1.55 -> 1.45)
-      bool feetAreClosed = feetRatio < 1.15; // Tăng độ chuẩn xác (1.25 -> 1.15)
+      bool feetAreWide = feetRatio > 1.30; // Thả lỏng hơn để dễ nhận diện nhảy dạng chân (1.45 -> 1.30)
+      bool feetAreClosed = feetRatio < 1.25; // Thả lỏng hơn để dễ nhận diện chân khép lại (1.15 -> 1.25)
 
       bool isCurrentPostureCorrect = true;
 

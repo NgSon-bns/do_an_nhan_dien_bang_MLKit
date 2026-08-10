@@ -97,7 +97,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     }
 
     // 2. Chuyển đổi trạng thái phím tắt (Shortcut Transitions) để tránh mất dấu khi tập nhanh
-    if (bodyHorizontalAngle < 35 && hipAngle > 135 && kneeAngle > 120) {
+    if (bodyHorizontalAngle < 45 && hipAngle > 130 && kneeAngle > 115) {
       // Đang ở tư thế nằm ngang (Plank) -> Chuyển thẳng sang Plank
       if (_currentState == BurpeeState.stand || _currentState == BurpeeState.squat) {
         _currentState = BurpeeState.plank;
@@ -108,7 +108,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     // 3. Logic chính của máy trạng thái
     switch (_currentState) {
       case BurpeeState.stand:
-        if (hipAngle < 115) {
+        if (hipAngle < 125 || kneeAngle < 125) {
           _currentState = BurpeeState.squat;
           feedback = "Đã ngồi xổm, hãy bật chân ra sau thành Plank!";
         } else {
@@ -117,11 +117,11 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         break;
 
       case BurpeeState.squat:
-        if (bodyHorizontalAngle < 35 && hipAngle > 135 && kneeAngle > 120) {
+        if (bodyHorizontalAngle < 45 && hipAngle > 130 && kneeAngle > 115) {
           _currentState = BurpeeState.plank;
           _hasVisitedPlank = true;
           feedback = "Tư thế Plank rất tốt! Hãy nhảy thu chân về.";
-        } else if (kneeAngle > 155 && hipAngle > 150 && bodyHorizontalAngle > 70) {
+        } else if (kneeAngle > 150 && hipAngle > 145 && bodyHorizontalAngle > 65) {
           _currentState = BurpeeState.stand;
           feedback = "Hãy ngồi xổm sâu xuống sát mặt sàn.";
         } else {
@@ -130,10 +130,10 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         break;
 
       case BurpeeState.plank:
-        if (hipAngle < 115 && bodyHorizontalAngle > 20) {
+        if ((hipAngle < 125 || kneeAngle < 125) && bodyHorizontalAngle > 20) {
           _currentState = BurpeeState.recover;
           feedback = "Đã thu chân về, hãy bật nhảy thẳng người lên!";
-        } else if (kneeAngle > 155 && hipAngle > 150 && bodyHorizontalAngle > 70) {
+        } else if (kneeAngle > 150 && hipAngle > 145 && bodyHorizontalAngle > 65) {
           // Nếu đứng dậy thẳng luôn từ Plank
           if (_hasVisitedPlank && isHandsRaised) {
             _reps++;
@@ -151,7 +151,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         break;
 
       case BurpeeState.recover:
-        if (kneeAngle > 150 && hipAngle > 140) {
+        if (kneeAngle > 145 && hipAngle > 135) {
           _currentState = BurpeeState.jump;
           feedback = "Đang bật nhảy...";
         } else {
@@ -167,7 +167,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
           isJumping = hip.y < (_standingHipY! - 0.03 * torsoLength);
         }
 
-        if (((kneeAngle > 155 && hipAngle > 150 && isHandsRaised) || (isJumping && isHandsRaised)) && bodyHorizontalAngle > 65) {
+        if (((kneeAngle > 150 && hipAngle > 140 && isHandsRaised) || (isJumping && isHandsRaised)) && bodyHorizontalAngle > 60) {
           if (_hasVisitedPlank) {
             _reps++;
             shouldCountRep = true;
@@ -177,7 +177,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
           } else {
             _currentState = BurpeeState.stand;
           }
-        } else if (kneeAngle < 115 && hipAngle < 115) {
+        } else if (kneeAngle < 125 && hipAngle < 125) {
           // Bắt đầu rep mới luôn mà bỏ qua bật nhảy của rep cũ để tránh bị treo
           _currentState = BurpeeState.squat;
           feedback = "Đã ngồi xổm, hãy bật chân ra sau thành Plank!";
