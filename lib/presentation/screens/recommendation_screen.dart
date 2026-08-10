@@ -202,11 +202,15 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       }
     }
 
-    // 3. Nếu không có ở đâu cả, tạo mới hoàn toàn
-    if (!hasLocal || tempSchedule.isEmpty) {
-      double bmi = _height > 0
-          ? _weight / ((_height / 100) * (_height / 100))
-          : 0.0;
+    double bmi = _height > 0
+        ? _weight / ((_height / 100) * (_height / 100))
+        : 0.0;
+
+    // 3. Căn chỉnh lịch trình với ngày tuần hiện tại (mới nhất) hoặc tạo mới hoàn toàn
+    if (hasLocal && tempSchedule.isNotEmpty) {
+      tempSchedule = _alignScheduleWithCurrentDates(tempSchedule, _selectedGoal, bmi, _age);
+      await _saveScheduleLocallyAndDb(tempSchedule);
+    } else {
       final rawSchedule = _generateAdaptiveSchedule(_selectedGoal, bmi, _age);
       tempSchedule = _postProcessAdaptiveSchedule(rawSchedule);
       await _saveScheduleLocallyAndDb(tempSchedule);
@@ -217,6 +221,77 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         _savedSchedule = tempSchedule;
       });
     }
+  }
+
+  // Căn chỉnh/Trộn lịch trình cũ từ cache với các mốc ngày mới của 3 tuần hiển thị
+  List<Map<String, dynamic>> _alignScheduleWithCurrentDates(
+    List<Map<String, dynamic>> cachedSchedule,
+    String goal,
+    double bmi,
+    int age,
+  ) {
+    final List<Map<String, dynamic>> aligned = [];
+    const weekLabels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
+
+    // Đưa toàn bộ các ngày đã lưu vào map dạng key = date
+    final Map<String, Map<String, dynamic>> cacheMap = {};
+    for (var day in cachedSchedule) {
+      final String? date = day['date'] as String?;
+      if (date != null) {
+        cacheMap[date] = day;
+      }
+    }
+
+    for (int weekIndex = 0; weekIndex < 3; weekIndex++) {
+      final DateTime selectedWeekMonday = _getSelectedDayDate(weekIndex * 7);
+      
+      final DateTime epoch = DateTime(2026, 1, 5);
+      final DateTime mondayUtc = DateTime.utc(selectedWeekMonday.year, selectedWeekMonday.month, selectedWeekMonday.day);
+      final DateTime epochUtc = DateTime.utc(epoch.year, epoch.month, epoch.day);
+      final int diffDays = mondayUtc.difference(epochUtc).inDays;
+      final int stableWeekIndex = diffDays ~/ 7;
+
+      final fullBodyCount = _weeklyFullBodyCount(goal, stableWeekIndex);
+      final pattern = _groupPatternForWeek(fullBodyCount);
+      int slot = 0;
+
+      for (int dayInWeek = 1; dayInWeek <= 7; dayInWeek++) {
+        final int globalDay = weekIndex * 7 + dayInWeek;
+        final DateTime dayDate = _getSelectedDayDate(globalDay - 1);
+        final String dateStr = '${dayDate.year}-${dayDate.month.toString().padLeft(2, '0')}-${dayDate.day.toString().padLeft(2, '0')}';
+
+        if (cacheMap.containsKey(dateStr)) {
+          // Ngày này đã tồn tại trong lịch trình cũ -> giữ nguyên bài tập/custom và đồng bộ lại index
+          final cachedDay = Map<String, dynamic>.from(cacheMap[dateStr]!);
+          cachedDay['day'] = globalDay;
+          cachedDay['weekLabel'] = weekLabels[weekIndex];
+          aligned.add(cachedDay);
+          
+          if (dayInWeek != 3 && dayInWeek != 7) {
+            slot++; // Giữ đồng bộ chỉ số slot xoay vòng
+          }
+        } else {
+          // Chưa có -> sinh bài tập mới cho ngày đó theo thuật toán xoay vòng ổn định
+          Map<String, dynamic> dayData;
+          if (dayInWeek == 3) {
+            dayData = _buildRestDay(isEndOfWeek: false);
+          } else if (dayInWeek == 7) {
+            dayData = _buildRestDay(isEndOfWeek: true);
+          } else {
+            final groupName = pattern[slot % pattern.length];
+            slot++;
+            dayData = _buildWorkoutDayFromGroup(groupName);
+          }
+
+          dayData['day'] = globalDay;
+          dayData['weekLabel'] = weekLabels[weekIndex];
+          dayData['date'] = dateStr;
+          aligned.add(dayData);
+        }
+      }
+    }
+
+    return aligned;
   }
 
   // Lưu lịch trình lên Local và DB
@@ -755,8 +830,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     if (_savedSchedule.isNotEmpty) {
       try {
-        final int todayIndex = DateTime.now().weekday - 1;
-        final int safeTodayIndex = 7 + todayIndex;
+        final String targetDateStr = '${selectedDayDate.year}-${selectedDayDate.month.toString().padLeft(2, '0')}-${selectedDayDate.day.toString().padLeft(2, '0')}';
+        final int targetIndex = _savedSchedule.indexWhere((day) => day['date'] == targetDateStr);
+        if (targetIndex == -1) {
+          print('[_toggleExerciseGroup] Không tìm thấy ngày tương ứng trong lịch trình: $targetDateStr');
+          return;
+        }
 
         final scientificTargets = _calculateScientificReps(
           _weight,
@@ -768,25 +847,23 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         final customList = _buildCustomExerciseList(scientificTargets);
 
         List<Map<String, dynamic>> updatedSchedule = List.from(_savedSchedule);
-        updatedSchedule[safeTodayIndex] = Map<String, dynamic>.from(
-          updatedSchedule[safeTodayIndex],
+        updatedSchedule[targetIndex] = Map<String, dynamic>.from(
+          updatedSchedule[targetIndex],
         );
-        updatedSchedule[safeTodayIndex]['exercises'] = customList;
-        updatedSchedule[safeTodayIndex]['isRest'] = false;
+        updatedSchedule[targetIndex]['exercises'] = customList;
+        updatedSchedule[targetIndex]['isRest'] = false;
 
-        // Cập nhật cascade từ NGÀY MAI trở đi: nếu bài tập ngày nào đó bị
-        // trùng với ngày liền trước (đã thay đổi), tự động đổi sang bài
-        // thay thế để không trùng lặp giữa 2 ngày tập liên tiếp.
-        for (int i = safeTodayIndex + 1; i < updatedSchedule.length; i++) {
+        // Cập nhật cascade từ ngày đó trở đi
+        for (int i = targetIndex + 1; i < updatedSchedule.length; i++) {
           updatedSchedule[i] = _ensureNoConsecutiveDuplicate(
             updatedSchedule[i],
             updatedSchedule[i - 1],
           );
         }
 
-        debugPrint(
-          'Đã cập nhật lịch hôm nay (index $safeTodayIndex) và cascade '
-          'tới ${updatedSchedule.length - 1 - safeTodayIndex} ngày sau đó.',
+        print(
+          'Đã cập nhật lịch ngày $targetDateStr (index $targetIndex) và cascade '
+          'tới ${updatedSchedule.length - 1 - targetIndex} ngày sau đó.',
         );
 
         await _saveScheduleLocallyAndDb(updatedSchedule);
@@ -1936,12 +2013,26 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     const weekLabels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
 
     for (int weekIndex = 0; weekIndex < 3; weekIndex++) {
-      final fullBodyCount = _weeklyFullBodyCount(goal, weekIndex);
+      // Tìm ngày thứ hai của tuần tương ứng
+      final DateTime selectedWeekMonday = _getSelectedDayDate(weekIndex * 7);
+
+      // Tính số tuần kể từ mốc cố định ngày 05/01/2026 (một ngày Thứ Hai) để làm stableWeekIndex
+      final DateTime epoch = DateTime(2026, 1, 5);
+      final DateTime mondayUtc = DateTime.utc(selectedWeekMonday.year, selectedWeekMonday.month, selectedWeekMonday.day);
+      final DateTime epochUtc = DateTime.utc(epoch.year, epoch.month, epoch.day);
+      final int diffDays = mondayUtc.difference(epochUtc).inDays;
+      final int stableWeekIndex = diffDays ~/ 7;
+
+      final fullBodyCount = _weeklyFullBodyCount(goal, stableWeekIndex);
       final pattern = _groupPatternForWeek(fullBodyCount);
       int slot = 0;
 
       for (int dayInWeek = 1; dayInWeek <= 7; dayInWeek++) {
         final int globalDay = weekIndex * 7 + dayInWeek;
+        // Tính ngày thực tế tương ứng với ngày trong danh sách đề xuất
+        final DateTime dayDate = _getSelectedDayDate(globalDay - 1);
+        final String dateStr = '${dayDate.year}-${dayDate.month.toString().padLeft(2, '0')}-${dayDate.day.toString().padLeft(2, '0')}';
+
         Map<String, dynamic> dayData;
 
         if (dayInWeek == 3) {
@@ -1956,6 +2047,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
         dayData['day'] = globalDay;
         dayData['weekLabel'] = weekLabels[weekIndex];
+        dayData['date'] = dateStr;
         schedule.add(dayData);
       }
     }
