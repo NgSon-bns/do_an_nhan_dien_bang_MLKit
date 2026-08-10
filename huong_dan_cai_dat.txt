@@ -1,0 +1,113 @@
+========================================================================
+TÀI LIỆU HƯỚNG DẪN CÀI ĐẶT VÀ CẤU HÌNH ỨNG DỤNG DI ĐỘNG (CLIENT)
+ĐỀ TÀI: HỆ THỐNG GIÁM SÁT BÀI TẬP THỂ THAO TRÊN ANDROID SỬ DỤNG NHẬN DIỆN TƯ THẾ CƠ THỂ
+========================================================================
+
+Tài liệu này hướng dẫn chi tiết từng bước thiết lập môi trường phát triển, cấu hình cơ sở dữ liệu Supabase backend và biên dịch (build) cài đặt ứng dụng Android lên điện thoại di động để thử nghiệm thực tế.
+
+------------------------------------------------------------------------
+PHẦN 1: YÊU CẦU HỆ THỐNG (PREREQUISITES)
+------------------------------------------------------------------------
+1. Yêu cầu máy tính phát triển (Build PC):
+   - Hệ điều hành: Windows 10/11 (64-bit), macOS, hoặc Linux.
+   - Bộ nhớ RAM: Khuyến nghị tối thiểu 8 GB trở lên.
+   - Dung lượng đĩa trống: Khuyến nghị tối thiểu 20 GB (cho Android SDK, Flutter SDK).
+
+2. Yêu cầu công cụ phần mềm:
+   - Git (để quản lý phiên bản).
+   - Java Development Kit (JDK 11 hoặc 17).
+   - Flutter SDK (Phiên bản 3.x trở lên, khuyến nghị 3.10 trở lên).
+   - Android Studio (để cài đặt Android SDK, Platform Tools, Command-line Tools).
+   - Trình soạn thảo mã nguồn: VS Code (đã cài extension Flutter & Dart) hoặc Android Studio.
+
+3. Yêu cầu thiết bị thử nghiệm (Android Device):
+   - Điện thoại Android thật chạy hệ điều hành Android 7.0 (API 24) trở lên.
+   - Có Camera trước hoạt động bình thường.
+   - Đã bật "Tùy chọn nhà phát triển" (Developer Options) và bật "Gỡ lỗi USB" (USB Debugging).
+   - *Lưu ý quan trọng:* Khuyến nghị dùng điện thoại thật để thử nghiệm tính năng nhận diện tư thế cơ thể (Camera AI). Các trình giả lập (Emulator) trên máy tính không hỗ trợ camera thật và không tối ưu hóa tăng tốc đồ họa phần cứng cho xử lý AI Pose.
+
+------------------------------------------------------------------------
+PHẦN 2: CÀI ĐẶT MÔI TRƯỜNG PHÁT TRIỂN & CHẠY DỰ ÁN
+------------------------------------------------------------------------
+Bước 1: Cài đặt Flutter & Android SDK:
+1. Tải Flutter SDK từ trang chủ flutter.dev và giải nén (ví dụ: `C:\src\flutter`).
+2. Thêm đường dẫn `C:\src\flutter\bin` vào biến môi trường PATH của hệ thống (Environment Variables).
+3. Mở Android Studio, cài đặt Android SDK và thiết lập JDK tương ứng.
+4. Mở Command Prompt / Terminal, chạy lệnh sau để kiểm tra xem môi trường đã sẵn sàng chưa:
+   > flutter doctor
+   *(Đảm bảo tất cả các mục đều hiển thị dấu check xanh, đặc biệt là mục Android Toolchain và VS Code).*
+
+Bước 2: Mở mã nguồn dự án:
+1. Mở VS Code hoặc Android Studio.
+2. Chọn "Open Folder" và dẫn đến thư mục chứa mã nguồn của dự án:
+   `D:\STU\Luanvantotnghiep\flutter\LuanVanDemo-main`
+
+Bước 3: Tải và cài đặt các thư viện phụ thuộc:
+Mở Terminal ngay tại thư mục dự án và chạy lệnh:
+   > flutter pub get
+Lệnh này sẽ tự động tải các thư viện khai báo trong tệp `pubspec.yaml` (Google ML Kit, Supabase, Camera, TTS, v.v.).
+
+------------------------------------------------------------------------
+PHẦN 3: CẤU HÌNH KẾT NỐI BACKEND (SUPABASE)
+------------------------------------------------------------------------
+Ứng dụng sử dụng cơ sở dữ liệu Supabase làm backend. Nếu bạn muốn sử dụng cơ sở dữ liệu riêng của mình thay vì cơ sở dữ liệu mặc định của ứng dụng, hãy làm theo các bước sau:
+
+Bước 1: Tạo dự án mới trên Supabase:
+1. Truy cập trang web supabase.com và đăng ký/đăng nhập.
+2. Tạo mới một Project, đặt tên (ví dụ: `FitnessApp`) và mật khẩu cho Database. Chọn Region gần bạn nhất (ví dụ: Singapore) để giảm độ trễ đường truyền.
+
+Bước 2: Tạo các bảng dữ liệu (Tables Setup):
+Truy cập vào menu **SQL Editor** trong trang quản trị Supabase, dán các câu lệnh SQL để tạo các bảng theo cấu trúc nghiệp vụ:
+1. Bảng lưu hồ sơ thể chất (`profiles`): Lưu id (khóa ngoại liên kết bảng auth.users), chiều cao, cân nặng, tuổi, giới tính, mục tiêu, chỉ số sinh lý (BMI, BMR, TDEE, Calo nạp, Calo tập).
+2. Bảng nhật ký bài tập (`workout_history`): Lưu lịch sử tập của người dùng (id, user_id, ngày tập, tên bài tập, số reps đúng, số reps sai, lượng calo tiêu thụ thực tế).
+3. Bảng điểm danh (`check_ins`): Lưu thông tin điểm danh (id, user_id, ngày điểm danh, streak hiện tại).
+
+Bước 3: Bật Row Level Security (RLS) để bảo mật:
+1. Vào menu **Database** -> **RLS Policies**.
+2. Kích hoạt RLS cho tất cả các bảng.
+3. Tạo policy cho phép người dùng chỉ có quyền Xem/Thêm/Sửa/Xóa dữ liệu của chính mình (sử dụng điều kiện so sánh `auth.uid() = user_id`).
+
+Bước 4: Thay đổi khóa API kết nối trong code Flutter:
+1. Trên trang quản trị Supabase, vào **Project Settings** -> **API**.
+2. Sao chép URL của dự án (Project URL) và Anon Key (Khóa bảo mật công khai).
+3. Mở mã nguồn dự án Flutter tại tệp: `lib/main.dart`
+4. Thay thế thông tin kết nối mới của bạn tại dòng 23 và 24:
+   ```dart
+   const String supabaseUrl = 'Địa_Chỉ_URL_Supabase_Của_Bạn';
+   const String supabaseAnonKey = 'Khóa_Anon_Key_Supabase_Của_Bạn';
+   ```
+
+------------------------------------------------------------------------
+PHẦN 4: BIÊN DỊCH VÀ CÀI ĐẶT ỨNG DỤNG LÊN ĐIỆN THOẠI
+------------------------------------------------------------------------
+Phương án 1: Chạy trực tiếp (Debug Mode) để phát triển & sửa lỗi:
+1. Cắm cáp kết nối điện thoại Android vào máy tính. Trên điện thoại, xác nhận cho phép gỡ lỗi USB từ máy tính này.
+2. Tại Terminal của VS Code, kiểm tra xem máy tính đã nhận thiết bị chưa bằng lệnh:
+   > flutter devices
+3. Bấm phím `F5` hoặc chạy lệnh sau trong Terminal để khởi chạy ứng dụng lên điện thoại:
+   > flutter run
+
+Phương án 2: Xuất file cài đặt đóng gói (Build APK - Release Mode):
+Khi ứng dụng đã hoạt động ổn định và bạn muốn lấy file cài đặt cài lên điện thoại để đem đi thuyết trình hoặc chấm đồ án:
+1. Chạy lệnh sau để build file APK Release tối ưu hóa dung lượng:
+   > flutter build apk --split-per-abi
+   *(Lệnh này sẽ chia nhỏ file cài đặt theo kiến trúc CPU của điện thoại như arm64-v8a giúp file cài đặt nhẹ hơn đáng kể, dễ cài hơn).*
+2. Sau khi biên dịch hoàn tất, các file cài đặt APK sẽ được lưu trữ tại thư mục:
+   `build\app\outputs\flutter-apk\`
+3. Bạn sao chép file **`app-arm64-v8a-release.apk`** vào điện thoại của mình và tiến hành mở tệp để cài đặt thủ công.
+
+------------------------------------------------------------------------
+PHẦN 5: XỬ LÝ CÁC LỖI THƯỜNG GẶP (TROUBLESHOOTING)
+------------------------------------------------------------------------
+1. Lỗi Gradle build failed / Kotlin version mismatch:
+   - Nguyên nhân: Xung đột phiên bản JDK hoặc cấu hình Gradle nội bộ của Android Studio.
+   - Khắc phục: Chạy lệnh `flutter clean` để xóa cache build cũ, sau đó chạy `flutter pub get` và thử build lại. Hãy đảm bảo bạn đang dùng JDK 11 hoặc 17 trong cấu hình Android Studio.
+
+2. Lỗi không mở được camera / màn hình đen khi tập luyện:
+   - Nguyên nhân: Chưa cấp quyền truy cập camera cho ứng dụng.
+   - Khắc phục: Vào **Cài đặt hệ thống (Settings)** của điện thoại -> **Ứng dụng (Apps)** -> Chọn **AI Fitness Coach** -> Chọn mục **Quyền (Permissions)** -> Cho phép quyền truy cập **Máy ảnh (Camera)**.
+
+3. Lỗi không kết nối được Supabase (Hiện màn hình trắng hoặc không đăng nhập được):
+   - Nguyên nhân: Thiết bị di động không có kết nối internet, hoặc cấu hình sai địa chỉ URL/Anon Key của dự án Supabase.
+   - Khắc phục: Kiểm tra lại mạng Wifi/4G trên điện thoại. Kiểm tra kỹ xem bạn đã copy chính xác thông tin khóa API trong tệp `lib/main.dart` chưa.
+========================================================================
