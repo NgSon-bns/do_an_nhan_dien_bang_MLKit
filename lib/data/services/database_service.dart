@@ -7,7 +7,7 @@ import '../../domain/exercise.dart';
 class DatabaseService {
   SupabaseClient get _client => Supabase.instance.client;
 
-  /// Lấy toàn bộ danh sách bài tập động từ bảng 'bai_tap' trên Supabase
+  
   Future<List<Map<String, dynamic>>> getExercisesFromDatabase() async {
     try {
       final List<dynamic> data = await _client
@@ -29,7 +29,7 @@ class DatabaseService {
         final decoded = jsonDecode(data) as List;
         final list = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
-        // Tự động dọn dẹp các bài tập có ID không hợp lệ để tránh lỗi khóa ngoại (23503)
+        
         final validTypes = ExerciseType.values.map((e) => e.name).toSet();
         final filteredList = list.where((item) {
           final exerciseId = item['ma_bai_tap_rieng'] as String?;
@@ -127,7 +127,7 @@ class DatabaseService {
     return anySuccess;
   }
 
-  /// Lưu kết quả một buổi tập mới lên Supabase Cloud PostgreSQL (Offline-first)
+  
   Future<void> saveWorkoutResult({
     required String exerciseType,
     required int repsCount,
@@ -145,7 +145,7 @@ class DatabaseService {
         : 'custom';
     final String nowStr = DateTime.now().toUtc().toIso8601String();
 
-    // 1. Lưu cục bộ trước (Offline-first)
+    
     final localList = await _getLocalWorkouts(user.id);
     final Map<String, dynamic> newRecord = {
       'ma_nguoi_dung': user.id,
@@ -162,7 +162,7 @@ class DatabaseService {
     localList.add(newRecord);
     await _saveLocalWorkouts(user.id, localList);
 
-    // 2. Thử đẩy lên database Supabase
+    
     try {
       await _client.from('lich_su_tap_luyen').insert({
         'ma_nguoi_dung': user.id,
@@ -175,7 +175,7 @@ class DatabaseService {
         'loai_bai_tap': loaiBaiTap,
         'ngay_tao': nowStr,
       });
-      // Nếu thành công, cập nhật cờ is_synced thành true
+      
       newRecord['is_synced'] = true;
       await _saveLocalWorkouts(user.id, localList);
     } catch (e) {
@@ -183,7 +183,7 @@ class DatabaseService {
     }
   }
 
-  /// Lấy tổng số calo tiêu hao và tổng thời gian tập luyện thực tế của người dùng hiện tại
+  
   Future<Map<String, dynamic>> getWorkoutStats() async {
     final user = _client.auth.currentUser;
     if (user == null) {
@@ -228,7 +228,7 @@ class DatabaseService {
     final String targetDateStr =
         '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
 
-    // 1. Tải từ Cache local trước
+    
     final localList = await _getLocalWorkouts(user.id);
     final List<Map<String, dynamic>> filteredLocal = [];
     for (var row in localList) {
@@ -249,7 +249,7 @@ class DatabaseService {
       }
     }
 
-    // 2. Thử truy cập Supabase
+    
     try {
       final startQuery = DateTime.utc(
         day.year,
@@ -288,7 +288,7 @@ class DatabaseService {
         }
       }
 
-      // Merge Cloud & Local (tránh trùng dựa trên exercise_id và ngay_tao)
+      
       final mergedList = List<Map<String, dynamic>>.from(filteredLocal);
       for (var cloudItem in filteredCloud) {
         final alreadyExists = mergedList.any((localItem) =>
@@ -314,7 +314,7 @@ class DatabaseService {
         .toList();
   }
 
-  /// Lấy danh sách lịch sử tập luyện gần đây
+  
   Future<List<Map<String, dynamic>>> getRecentWorkouts({int limit = 10}) async {
     final user = _client.auth.currentUser;
     if (user == null) return [];

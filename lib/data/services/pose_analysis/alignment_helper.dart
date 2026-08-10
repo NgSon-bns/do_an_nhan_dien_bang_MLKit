@@ -4,10 +4,10 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:demo/domain/exercise.dart';
 
 enum CameraAngle {
-  front,          // Thẳng đối diện mặt
-  diagonalLeft,   // Xéo bên trái 45 độ
-  diagonalRight,  // Xéo bên phải 45 độ
-  side,           // Góc ngang thân
+  front,          
+  diagonalLeft,   
+  diagonalRight,  
+  side,           
 }
 
 class AlignmentResult {
@@ -29,10 +29,10 @@ class AlignmentResult {
 }
 
 class AlignmentHelper {
-  /// Ước lượng góc xoay quanh trục thẳng đứng (Yaw) của cơ thể
-  /// Kết quả tính bằng độ (°), trong khoảng [-90, 90]
-  /// Góc dương: quay người sang trái (vai trái lùi xa, vai phải tiến gần)
-  /// Góc âm: quay người sang phải (vai phải lùi xa, vai trái tiến gần)
+  
+  
+  
+  
   static double estimateBodyYaw(Pose pose) {
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
@@ -45,7 +45,7 @@ class AlignmentHelper {
     if (leftShoulder != null && rightShoulder != null) {
       final dx = (leftShoulder.x - rightShoulder.x).abs();
       final dz = leftShoulder.z - rightShoulder.z;
-      if (dx > 5) { // tránh chia cho số quá nhỏ
+      if (dx > 5) { 
         shoulderYaw = math.atan2(dz, dx) * 180 / math.pi;
         count++;
       }
@@ -65,7 +65,7 @@ class AlignmentHelper {
     return (shoulderYaw + hipYaw) / count;
   }
 
-  /// Phân loại góc camera hiện tại dựa trên góc Yaw của thân người
+  
   static CameraAngle getCameraAngle(double yaw) {
     if (yaw.abs() <= 25.0) {
       return CameraAngle.front;
@@ -78,7 +78,7 @@ class AlignmentHelper {
     }
   }
 
-  /// Trả về mô tả tiếng Việt cho góc camera
+  
   static String getAngleName(CameraAngle angle) {
     switch (angle) {
       case CameraAngle.front:
@@ -92,16 +92,16 @@ class AlignmentHelper {
     }
   }
 
-  /// Xác định xem bài tập này dùng khung đứng hay khung ngang
+  
   static bool isHorizontalLayout(ExerciseType exerciseType) {
-    // Plank và Push-Up là các bài nằm ngang trên sàn nhà
+    
     if (exerciseType == ExerciseType.plank || exerciseType == ExerciseType.push_up) {
       return true;
     }
     return false;
   }
 
-  /// Chuyển đổi tọa độ từ ảnh camera sang canvas màn hình (đồng bộ với PoseSkeletonPainter)
+  
   static Offset translateCoordinates({
     required double x,
     required double y,
@@ -129,7 +129,7 @@ class AlignmentHelper {
     return Offset(translatedX, translatedY);
   }
 
-  /// Kiểm tra xem người dùng đã đứng đúng khung hình hay chưa (Dung sai cao)
+  
   static AlignmentResult checkAlignment({
     required Pose pose,
     required ExerciseType exerciseType,
@@ -141,7 +141,7 @@ class AlignmentHelper {
     final yaw = estimateBodyYaw(pose);
     final currentAngle = getCameraAngle(yaw);
 
-    // 1. Tính toán khung chữ nhật chỉ định trên màn hình
+    
     final isHorizontal = isHorizontalLayout(exerciseType);
     final double boxWidth;
     final double boxHeight;
@@ -149,13 +149,13 @@ class AlignmentHelper {
     final double boxTop;
 
     if (isHorizontal) {
-      // Khung ngang cho Plank/push_up
+      
       boxWidth = screenSize.width * 0.90;
       boxHeight = screenSize.height * 0.45;
       boxLeft = (screenSize.width - boxWidth) / 2;
-      boxTop = (screenSize.height - boxHeight) / 2 + 60; // Dịch xuống dưới sàn một chút
+      boxTop = (screenSize.height - boxHeight) / 2 + 60; 
     } else {
-      // Khung đứng cho Squat/Jumping Jack/Lunge/Burpee
+      
       boxWidth = screenSize.width * 0.65;
       boxHeight = screenSize.height * 0.80;
       boxLeft = (screenSize.width - boxWidth) / 2;
@@ -164,7 +164,7 @@ class AlignmentHelper {
 
     final frameRect = Rect.fromLTWH(boxLeft, boxTop, boxWidth, boxHeight);
 
-    // Áp dụng dung sai 15% nới lỏng viền kiểm tra (mở rộng vùng hợp lệ)
+    
     final toleranceX = boxWidth * 0.15;
     final toleranceY = boxHeight * 0.15;
     final checkRect = Rect.fromLTRB(
@@ -174,9 +174,9 @@ class AlignmentHelper {
       frameRect.bottom + toleranceY,
     );
 
-    // 2. Kiểm tra xem các khớp có nằm trong khung hay không
+    
     bool isBodyInFrame = false;
-    const double minLikelihood = 0.45; // Ngưỡng tin cậy thấp để dễ nhận diện
+    const double minLikelihood = 0.45; 
 
     Offset getScreenOffset(PoseLandmarkType type) {
       final lm = pose.landmarks[type];
@@ -202,15 +202,15 @@ class AlignmentHelper {
     }
 
     if (isHorizontal) {
-      // Đối với bài nằm ngang (Plank, Push-up), chỉ cần một trong hai bên cơ thể hiển thị và lọt vào khung
-      // Sửa lỗi cúi/nằm
+      
+      
       final leftShoulderVisible = isVisible(PoseLandmarkType.leftShoulder);
       final leftHipVisible = isVisible(PoseLandmarkType.leftHip);
       final leftInside = leftShoulderVisible && leftHipVisible &&
                          isInside(getScreenOffset(PoseLandmarkType.leftShoulder)) &&
                          isInside(getScreenOffset(PoseLandmarkType.leftHip));
 
-      // Bên phải: vai, hông, gối
+      
       final rightShoulderVisible = isVisible(PoseLandmarkType.rightShoulder);
       final rightHipVisible = isVisible(PoseLandmarkType.rightHip);
       final rightInside = rightShoulderVisible && rightHipVisible &&
@@ -219,7 +219,7 @@ class AlignmentHelper {
 
       isBodyInFrame = leftInside || rightInside;
     } else {
-      // Đối với các bài đứng dọc, yêu cầu thấy rõ cả 2 vai và 2 hông, và chúng nằm trong khung
+      
       final shouldersVisible = isVisible(PoseLandmarkType.leftShoulder) &&
                                isVisible(PoseLandmarkType.rightShoulder);
       final hipsVisible = isVisible(PoseLandmarkType.leftHip) &&
@@ -236,7 +236,7 @@ class AlignmentHelper {
                         isInside(leftHipPos) &&
                         isInside(rightHipPos);
 
-        // Nếu thấy cả đầu gối hoặc cổ chân thì kiểm tra thêm để khuyến khích đứng lùi lại
+        
         final leftKneePos = getScreenOffset(PoseLandmarkType.leftKnee);
         final rightKneePos = getScreenOffset(PoseLandmarkType.rightKnee);
         if (isVisible(PoseLandmarkType.leftKnee) && isVisible(PoseLandmarkType.rightKnee)) {
@@ -247,18 +247,18 @@ class AlignmentHelper {
       }
     }
 
-    // 3. Sinh phản hồi tiếng Việt cụ thể và thân thiện
+    
     String feedback = '';
     if (!isBodyInFrame) {
       if (isHorizontal) {
         feedback = 'Hãy nằm vào trong khung hình ngang trên sàn.';
       } else {
-        // Kiểm tra xem người dùng có đứng quá gần không
+        
         final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
         final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
         if (leftShoulder != null && rightShoulder != null) {
           final dist = (leftShoulder.x - rightShoulder.x).abs();
-          // Nếu khoảng cách vai trên ảnh quá lớn -> Đang đứng quá gần
+          
           if (dist > imageSize.width * 0.45) {
             feedback = 'Hãy đứng lùi lại để camera thấy toàn thân.';
           } else {

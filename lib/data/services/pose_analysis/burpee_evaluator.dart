@@ -35,7 +35,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
     final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
 
-    // Tính toán độ tin cậy hiển thị của mỗi bên
+    
     double leftScore = 0;
     if (leftShoulder != null) leftScore += leftShoulder.likelihood;
     if (leftHip != null) leftScore += leftHip.likelihood;
@@ -48,7 +48,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     if (rightKnee != null) rightScore += rightKnee.likelihood;
     if (rightAnkle != null) rightScore += rightAnkle.likelihood;
 
-    // Chọn bên hiển thị rõ hơn trước camera
+    
     bool useRight = rightScore >= leftScore;
     final shoulder = useRight ? rightShoulder : leftShoulder;
     final hip = useRight ? rightHip : leftHip;
@@ -81,7 +81,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
     final wrist = useRight ? rightWrist : leftWrist;
 
-    // Kiểm tra xem tay có giơ cao qua đầu/vai không
+    
     bool isHandsRaised = false;
     if (wrist != null && wrist.likelihood >= 0.50) {
       isHandsRaised = wrist.y < shoulder.y;
@@ -91,21 +91,21 @@ class BurpeeEvaluator extends BasePoseEvaluator {
     String feedback = "";
     bool isPostureCorrect = true;
 
-    // 1. Tự động nhận diện và cập nhật chiều cao hông khi đứng thẳng hoàn toàn
+    
     if (kneeAngle > 160 && hipAngle > 160) {
       _standingHipY = hip.y;
     }
 
-    // 2. Chuyển đổi trạng thái phím tắt (Shortcut Transitions) để tránh mất dấu khi tập nhanh
+    
     if (bodyHorizontalAngle < 45 && hipAngle > 130 && kneeAngle > 115) {
-      // Đang ở tư thế nằm ngang (Plank) -> Chuyển thẳng sang Plank
+      
       if (_currentState == BurpeeState.stand || _currentState == BurpeeState.squat) {
         _currentState = BurpeeState.plank;
         _hasVisitedPlank = true;
       }
     }
 
-    // 3. Logic chính của máy trạng thái
+    
     switch (_currentState) {
       case BurpeeState.stand:
         if (hipAngle < 125 || kneeAngle < 125) {
@@ -134,7 +134,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
           _currentState = BurpeeState.recover;
           feedback = "Đã thu chân về, hãy bật nhảy thẳng người lên!";
         } else if (kneeAngle > 150 && hipAngle > 145 && bodyHorizontalAngle > 65) {
-          // Nếu đứng dậy thẳng luôn từ Plank
+          
           if (_hasVisitedPlank && isHandsRaised) {
             _reps++;
             shouldCountRep = true;
@@ -163,7 +163,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         double torsoLength = PoseMath.calculateDistance(shoulder, hip);
         bool isJumping = false;
         if (_standingHipY != null) {
-          // Chỉ cần nhấc nhẹ hông hoặc giơ tay cao là tính nhảy
+          
           isJumping = hip.y < (_standingHipY! - 0.03 * torsoLength);
         }
 
@@ -178,7 +178,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
             _currentState = BurpeeState.stand;
           }
         } else if (kneeAngle < 125 && hipAngle < 125) {
-          // Bắt đầu rep mới luôn mà bỏ qua bật nhảy của rep cũ để tránh bị treo
+          
           _currentState = BurpeeState.squat;
           feedback = "Đã ngồi xổm, hãy bật chân ra sau thành Plank!";
         } else {
@@ -187,8 +187,8 @@ class BurpeeEvaluator extends BasePoseEvaluator {
         break;
     }
 
-    // 4. LUẬT PHỤC HỒI TOÀN CỤC (Global Recovery Rule):
-    // Nếu đã plank và nay đã đứng dậy giơ tay -> Chắc chắn hoàn thành 1 Burpee bất chấp lỗi trôi frame
+    
+    
     if (_hasVisitedPlank && kneeAngle > 155 && hipAngle > 150 && isHandsRaised && bodyHorizontalAngle > 65) {
       _reps++;
       shouldCountRep = true;
@@ -197,11 +197,11 @@ class BurpeeEvaluator extends BasePoseEvaluator {
       _hasVisitedPlank = false;
     }
 
-    // Kiểm tra lỗi tư thế khi Plank (chỉ khi đang ở trạng thái Plank và bị lỗi kéo dài để lọc nhiễu lúc nhảy chân xuống)
+    
     if (_currentState == BurpeeState.plank && kneeAngle > 140 && hipAngle > 140) {
       if (bodyHorizontalAngle >= 25 && bodyHorizontalAngle < 65) {
         _plankErrorFrames++;
-        if (_plankErrorFrames > 8) { // Cần bị lỗi liên tiếp > 8 frame (~0.3s) mới báo đỏ
+        if (_plankErrorFrames > 8) { 
           isPostureCorrect = false;
           feedback = "Hãy giữ lưng và hông thẳng song song mặt sàn (Plank)!";
         }
@@ -212,7 +212,7 @@ class BurpeeEvaluator extends BasePoseEvaluator {
       _plankErrorFrames = 0;
     }
 
-    // Nếu tập đúng
+    
     if (isPostureCorrect) {
       if (shouldCountRep) {
         feedback = "Tốt lắm!";

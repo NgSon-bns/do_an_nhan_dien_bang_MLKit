@@ -35,25 +35,25 @@ class _NutritionPanelState extends State<NutritionPanel> {
   
   
 
-  // Biến lưu trữ calo mục tiêu ở cấp State để đồng bộ dữ liệu an toàn
+  
   double _targetCal = 2000.0;
 
-  // Lưu trữ danh sách món ăn đang hiển thị hiện tại cho ngày hôm nay
+  
   List<RecommendedMeal> _currentDayMeals = [];
 
-  // Lưu trữ chỉ số (index) xoay vòng đổi món của từng buổi
+  
   final Map<String, int> _mealSwapIndexes = {};
 
-  // --- BỘ LỌC NGUYÊN LIỆU ĐỘNG TRÊN GIAO DIỆN ---
+  
   String _activeIngredientQuery = "";
   bool _isExcludeMode =
-      true; // true: Lọc bỏ món chứa từ khóa | false: Chỉ hiện món chứa từ khóa
+      true; 
 
   late  TextEditingController _ingredientFilterController;
   @override
   void initState() {
     super.initState();
-    // Bước 1: Khởi tạo danh sách món ăn mặc định ngay lập tức để tránh danh sách bị rỗng gây crash khi build lần đầu
+    
     _calculateTargetCal();
     _generateDefaultMeals();
     _ingredientFilterController =
@@ -74,8 +74,8 @@ class _NutritionPanelState extends State<NutritionPanel> {
         oldWidget.weight != widget.weight ||
         oldWidget.height != widget.height ||
         oldWidget.age != widget.age) {
-      // Cập nhật trực tiếp — KHÔNG gọi setState bởi vì Flutter đã tự gọi build() sau didUpdateWidget.
-      // Gọi setState trong didUpdateWidget làm framework assert '_elements.contains(element)' fail.
+      
+      
       _calculateTargetCal();
       final int dayOfWeek = (widget.selectedDayDate.weekday - 1).clamp(0, 6);
       final List<RecommendedMeal> originalMeals = NutritionService.getRecommendedMeals(
@@ -87,7 +87,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     }
   }
 
-  // Tính toán lượng calo mục tiêu dựa trên thể trạng hiện tại
+  
   void _calculateTargetCal() {
     if (widget.weight <= 0 || widget.height <= 0 || widget.age <= 0) return;
 
@@ -112,7 +112,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     _targetCal = target;
   }
 
-  // Hàm khởi tạo danh sách món ăn ban đầu (tránh mảng rỗng khi khởi chạy)
+  
   void _generateDefaultMeals() {
     int dayOfWeek = (widget.selectedDayDate.weekday - 1).clamp(0, 6);
     _currentDayMeals = NutritionService.getRecommendedMeals(
@@ -122,7 +122,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     );
   }
 
-  // Lấy món ăn thay thế xoay vòng
+  
   RecommendedMeal? _getAlternativeMeal(String mealKey, double targetCal) {
     List<RecommendedMeal> alternatives = [];
 
@@ -150,7 +150,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     return alternatives[currentIndex % alternatives.length];
   }
 
-  // Hàm kích hoạt khi bấm nút "Đổi món"
+  
   void _swapMeal(RecommendedMeal oldMeal, double targetCal) {
     final alternative = _getAlternativeMeal(oldMeal.key, targetCal);
     if (alternative != null) {
@@ -187,7 +187,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
     }
   }
 
-  // Lọc động thực đơn dựa trên thanh tìm kiếm nguyên liệu tại chỗ
+  
   List<RecommendedMeal> _getFilteredMeals() {
     if (_activeIngredientQuery.isEmpty) return _currentDayMeals;
 
@@ -493,7 +493,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
             childrenPadding: const EdgeInsets.all(16),
             expandedCrossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Thanh tiến trình Calo
+              
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -834,7 +834,7 @@ class _NutritionPanelState extends State<NutritionPanel> {
                                     const SizedBox(width: 8),
                                     IconButton(
                                       onPressed: () =>
-                                          _swapMeal(meal, _targetCal), // Sử dụng biến _targetCal của State an toàn
+                                          _swapMeal(meal, _targetCal), 
                                       icon: const Icon(
                                         Icons.autorenew,
                                         color: AppTheme.neonBlue,

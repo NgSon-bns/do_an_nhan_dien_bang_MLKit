@@ -44,7 +44,7 @@ class AppTheme {
     );
   }
 
-  // Tiện ích tạo hiệu ứng kính mờ (Glassmorphism)
+  
   static BoxDecoration glassDecoration({
     Color? color,
     double borderRadius = 16.0,

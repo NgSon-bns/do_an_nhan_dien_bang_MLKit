@@ -9,7 +9,7 @@ class ExerciseDetail {
   final IconData icon;
   final List<String> instructions;
   final bool isDurationBased;
-  final int targetValue; // Số lần hoặc số giây mục tiêu
+  final int targetValue; 
   final String difficulty;
   final double caloriesPerMin;
   final String category;

@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthService {
   SupabaseClient get _client => Supabase.instance.client;
 
-  // 1. Đăng ký tài khoản mới bằng Email & Mật khẩu (Chờ xác thực OTP)
+  
   Future<AuthResponse> signUp({
     required String email,
     required String password,
@@ -15,7 +15,7 @@ class AuthService {
     );
   }
 
-  // 1b. Xác thực mã OTP đăng ký và tiến hành lưu thông tin profile
+  
   Future<AuthResponse> verifySignUpOtp({
     required String email,
     required String token,
@@ -27,7 +27,7 @@ class AuthService {
       type: OtpType.signup,
     );
 
-    // Sau khi xác thực OTP thành công, lưu profile vào bảng ho_so_nguoi_dung
+    
     if (response.user != null) {
       await _client.from('ho_so_nguoi_dung').insert({
         'ma_nguoi_dung': response.user!.id,
@@ -39,7 +39,7 @@ class AuthService {
     return response;
   }
 
-  // Tạo profile trực tiếp (dùng khi xác thực email bị tắt trên Supabase)
+  
   Future<void> createProfile({
     required String userId,
     required String email,
@@ -52,7 +52,7 @@ class AuthService {
     });
   }
 
-  // 1c. Gửi lại mã OTP xác nhận đăng ký
+  
   Future<ResendResponse> resendSignUpOtp({required String email}) async {
     return await _client.auth.resend(
       type: OtpType.signup,
@@ -60,12 +60,12 @@ class AuthService {
     );
   }
 
-  // 1d. Gửi mã OTP khôi phục mật khẩu qua Email
+  
   Future<void> sendPasswordResetOtp({required String email}) async {
     await _client.auth.resetPasswordForEmail(email);
   }
 
-  // 1e. Xác thực mã OTP khôi phục mật khẩu và đặt lại mật khẩu mới
+  
   Future<UserResponse> resetPasswordWithOtp({
     required String email,
     required String token,
@@ -82,7 +82,7 @@ class AuthService {
     );
   }
 
-  // 2. Đăng nhập bằng Email & Mật khẩu
+  
   Future<AuthResponse> signIn({
     required String email,
     required String password,
@@ -93,18 +93,18 @@ class AuthService {
     );
   }
 
-  // 3. Đăng xuất
+  
   Future<void> signOut() async {
     await _client.auth.signOut();
   }
 
-  // 4. Lấy thông tin người dùng hiện tại đang đăng nhập (nếu có)
+  
   User? get currentUser => _client.auth.currentUser;
 
-  // 5. Kiểm tra xem người dùng đã đăng nhập hay chưa
+  
   bool get isAuthenticated => _client.auth.currentSession != null;
 
-  // 6. Lấy profile chi tiết của người dùng hiện tại
+  
   Future<Map<String, dynamic>?> getCurrentUserProfile() async {
     final user = currentUser;
     if (user == null) return null;
@@ -121,7 +121,7 @@ class AuthService {
     }
   }
 
-  // 7. Cập nhật thông số profile (chiều cao, cân nặng, độ tuổi, giới tính)
+  
   Future<void> updateUserProfile({
     required String fullName,
     required double weight,

@@ -31,7 +31,7 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
     final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
     final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
 
-    // Kiểm tra null trực tiếp để Dart tự động thực hiện Type Promotion sang không-null
+    
     if (leftShoulder == null || leftHip == null || leftKnee == null || leftAnkle == null ||
         rightShoulder == null || rightHip == null || rightKnee == null || rightAnkle == null) {
       return PoseAnalysisResult(
@@ -41,7 +41,7 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
       );
     }
 
-    // Kiểm tra độ tin cậy của các khớp
+    
     if (leftShoulder.likelihood < _landmarkConfidenceThreshold ||
         leftHip.likelihood < _landmarkConfidenceThreshold ||
         leftKnee.likelihood < _landmarkConfidenceThreshold ||
@@ -57,11 +57,11 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
       );
     }
 
-    // Các biến đã được tự động promote thành không-null
+    
     double leftKneeAngle = PoseMath.getElbowAngle(leftHip, leftKnee, leftAnkle);
     double rightKneeAngle = PoseMath.getElbowAngle(rightHip, rightKnee, rightAnkle);
 
-    // Tính độ nghiêng lưng của cả 2 bên so với phương thẳng đứng
+    
     double leftBackTilt = PoseMath.calculateAngleToVertical(leftShoulder, leftHip);
     double rightBackTilt = PoseMath.calculateAngleToVertical(rightShoulder, rightHip);
     double averageBackTilt = (leftBackTilt + rightBackTilt) / 2.0;
@@ -70,21 +70,21 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
     String feedback = "";
     bool shouldCountRep = false;
 
-    // Kiểm tra độ thẳng của lưng (tránh khom lưng về phía trước quá 20 độ theo chuẩn y học thể thao)
+    
     if (averageBackTilt > 20.0) {
       isPostureCorrect = false;
       feedback = "Giữ ngực cao và thẳng lưng lên (độ nghiêng lưng < 20°)!";
     }
 
-    // Nếu phát hiện lỗi tư thế trong khi đang tấn xuống
+    
     if (!isPostureCorrect && _currentState == LungeState.lunge) {
       _isPostureCorrectInCurrentRep = false;
     }
 
-    // Logic máy trạng thái (State Machine)
+    
     switch (_currentState) {
       case LungeState.stand:
-        // Đang đứng thẳng, chuyển sang gập gối bước tấn (cả hai gối cùng gập sâu dưới 110 độ)
+        
         if (leftKneeAngle < 110 && rightKneeAngle < 110) {
           _currentState = LungeState.lunge;
           feedback = "Tấn tốt! Hãy đẩy gót chân đứng lên.";
@@ -94,7 +94,7 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
         break;
 
       case LungeState.lunge:
-        // Đang tấn sâu, đứng thẳng dậy hoàn toàn (cả hai gối mở rộng trên 150 độ)
+        
         if (leftKneeAngle > 150 && rightKneeAngle > 150) {
           _currentState = LungeState.stand;
           if (_isPostureCorrectInCurrentRep) {
@@ -105,14 +105,14 @@ class WalkingLungeEvaluator extends BasePoseEvaluator {
             isPostureCorrect = false;
             feedback = "Rep tập không được tính do gù/khom lưng quá 20°!";
           }
-          _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
+          _isPostureCorrectInCurrentRep = true; 
         } else {
           feedback = "Hãy đẩy người đứng thẳng dậy hoàn toàn.";
         }
         break;
     }
 
-    // Nếu tập đúng
+    
     if (isPostureCorrect) {
       if (shouldCountRep) {
         feedback = "Tốt lắm!";

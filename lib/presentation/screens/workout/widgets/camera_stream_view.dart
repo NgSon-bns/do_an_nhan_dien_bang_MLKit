@@ -10,7 +10,7 @@ class CameraStreamView extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     
-    // Tính toán tỷ lệ scale để CameraPreview lấp đầy màn hình mà không bị méo (fit cover)
+    
     var scale = size.aspectRatio * controller.value.aspectRatio;
 
     if (scale < 1) {

@@ -30,13 +30,13 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   final Map<ExerciseType, int> _selectedTargets = {};
   final Map<ExerciseType, bool> _noSplitTargets = {};
 
-  // Các chỉ số thống kê thực tế
+  
   double _totalCalories = 0.0;
   int _totalMinutes = 0;
   String _userName = 'Trainer';
   bool _isLoadingStats = true;
 
-  // Điểm danh hàng ngày
+  
   final CheckInService _checkInService = CheckInService();
   final WorkoutDraftService _workoutDraftService = WorkoutDraftService();
   int _checkInStreak = 0;
@@ -45,7 +45,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   bool _isLoadingCheckIn = true;
   Map<String, dynamic>? _todayDraftWorkout;
 
-  // Danh sách bài tập lấy từ database tiếng Việt (mặc định fallback về local list)
+  
   List<ExerciseDetail> _exercisesList = ExerciseDetail.defaultExercises;
   Timer? _syncTimer;
 
@@ -69,11 +69,11 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
   }
 
   Future<void> _clearTodayDraftWorkout() async {
-    // Gọi service để xóa bài tập nháp dưới local/database
-    // Bạn hãy thay thế tên hàm đúng với service của bạn (ví dụ: clearTodayDraftWorkout)
+    
+    
     await _workoutDraftService.clearTodayDraftWorkout();
 
-    // Cập nhật lại UI sau khi xóa thành công
+    
     await _refreshTodayDraftWorkout();
   }
 
@@ -190,14 +190,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     });
 
     try {
-      // 1. Tải thông tin người dùng
+      
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null && mounted) {
         setState(() {
           _userName = profile['ho_ten'] ?? 'Trainer';
         });
 
-        // Kiểm tra xem người dùng đã cập nhật đầy đủ chiều cao, cân nặng, độ tuổi chưa
+        
         final double weight = (profile['can_nang'] as num?)?.toDouble() ?? 0.0;
         final double height = (profile['chieu_cao'] as num?)?.toDouble() ?? 0.0;
         final int age = (profile['tuoi'] as num?)?.toInt() ?? 0;
@@ -216,7 +216,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         }
       }
 
-      // 2. Tải thống kê tập luyện từ CSDL
+      
       final stats = await _databaseService.getWorkoutStats();
       if (mounted) {
         setState(() {
@@ -251,7 +251,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
             orElse: () => ExerciseDetail.defaultExercises.first,
           );
 
-          // Lấy mảng danh sách từ database hoặc dự phòng cục bộ
+          
           final List<String> listInstructions = [];
           if (row['huong_dan_tap'] is List) {
             listInstructions.addAll(
@@ -381,7 +381,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Chiều cao
+                        
                         TextFormField(
                           controller: heightController,
                           keyboardType: const TextInputType.numberWithOptions(
@@ -421,7 +421,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // Cân nặng
+                        
                         TextFormField(
                           controller: weightController,
                           keyboardType: const TextInputType.numberWithOptions(
@@ -523,7 +523,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // Tuổi
+                        
                         TextFormField(
                           controller: ageController,
                           keyboardType: TextInputType.number,
@@ -595,7 +595,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 );
 
                                 if (context.mounted) {
-                                  Navigator.pop(context); // Đóng dialog
+                                  Navigator.pop(context); 
                                   _loadDashboardData();
                                 }
                               } catch (e) {
@@ -672,14 +672,14 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
       return;
     }
 
-    // Nếu đã có Supabase, chuyển hướng tới trang cá nhân
+    
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ProfileScreen(cameras: widget.cameras),
       ),
     ).then((_) {
-      // Reload dữ liệu khi quay lại từ trang cá nhân (đề phòng họ  cân nặng/chiều cao/họ tên)
+      
       _loadDashboardData();
     });
   }
@@ -692,7 +692,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
     try {
       final bool didSync = await DatabaseService().syncPendingWorkouts();
       if (didSync && mounted) {
-        // Sau khi sync thành công, cập nhật lại biểu đồ và chỉ số thống kê trên Dashboard
+        
         _loadDashboardData();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -716,7 +716,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
-            // 1. THANH TIÊU ĐỀ CHÀO MỪNG (HEADER BANNER)
+            
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -753,7 +753,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           ],
                         ),
 
-                        // Nút Avatar mở Trang cá nhân
+                        
                         GestureDetector(
                           onTap: _handleProfileClick,
                           child: Container(
@@ -773,7 +773,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // BẢNG ĐIỀU KHIỂN HÀNG NGÀY TRỰC QUAN (DAILY PROGRESS PANEL)
+                    
                     Container(
                       padding: const EdgeInsets.all(18),
                       decoration:
@@ -836,7 +836,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                           ),
                           const Divider(color: Colors.white10, height: 24),
 
-                          // Bảng 7 ngày tuần hiện tại
+                          
                           _isLoadingCheckIn
                               ? const Center(
                                   child: SizedBox(
@@ -975,7 +975,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
                           const Divider(color: Colors.white10, height: 28),
 
-                          // Bảng số liệu tập luyện hôm nay
+                          
                           _isLoadingStats
                               ? const Center(
                                   child: SizedBox(
@@ -1026,7 +1026,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ĐỀ XUẤT AI HLV CÁ NHÂN (AI PERSONAL COACH CARD)
+                    
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
@@ -1110,7 +1110,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
 
                     const SizedBox(height: 12),
 
-                    // Dedicated Lịch sử tập luyện card
+                    
                     GestureDetector(
                       onTap: _showWorkoutHistory,
                       child: Container(
@@ -1226,10 +1226,10 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 ],
                               ),
                             ),
-                            // NÚT XÓA MỚI ĐƯỢC THÊM VÀO ĐÂY
+                            
                             TextButton(
                               onPressed: () async {
-                                // Hiển thị hộp thoại xác nhận trước khi xóa (Tùy chọn, giúp tránh bấm nhầm)
+                                
                                 final confirm = await showDialog<bool>(
                                   context: context,
                                   builder: (context) => AlertDialog(
@@ -1263,7 +1263,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
                                 'Xóa',
                                 style: TextStyle(
                                   color: Colors
-                                      .redAccent, // Màu đỏ để phân biệt với nút Tiếp tục
+                                      .redAccent, 
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -1326,7 +1326,7 @@ class _ExerciseListScreenState extends State<ExerciseListScreen> {
               ),
             ),
 
-            // 3. DANH SÁCH CÁC THẺ BÀI TẬP DẠNG LƯỚI KHOA HỌC (SCIENTIFIC GRID)
+            
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 20.0),
               sliver: SliverGrid(

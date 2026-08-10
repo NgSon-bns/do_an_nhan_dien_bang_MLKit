@@ -16,10 +16,10 @@ class WorkoutHistoryBottomSheet extends StatefulWidget {
 }
 
 class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
-  // Mặc định là null để hiển thị toàn bộ lịch sử tập luyện ban đầu
+  
   DateTime? _selectedDate;
 
-  // Hàm chuyển đổi tên kỹ thuật dạng "pushUp::40::custom" thành tên tiếng Việt thân thiện
+  
   String _getFriendlyExerciseName(String rawName) {
     final parts = rawName.split('::');
     final mainName = parts.isNotEmpty ? parts[0] : rawName;
@@ -46,7 +46,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
     }
   }
 
-  // Hàm mở bộ chọn ngày của hệ thống Flutter
+  
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -57,7 +57,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.dark(
-              primary: AppTheme.neonGreen, // Màu chủ đạo của lịch chọn
+              primary: AppTheme.neonGreen, 
               onPrimary: Colors.black,
               surface: Colors.black87,
               onSurface: Colors.white,
@@ -79,7 +79,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
     }
   }
 
-  // So sánh xem 2 mốc thời gian DateTime có cùng ngày/tháng/năm không
+  
   bool _isSameDay(DateTime date1, DateTime date2) {
     return date1.year == date2.year &&
         date1.month == date2.month &&
@@ -103,7 +103,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   children: [
-                    // Thanh kéo chỉ thị đầu Bottom Sheet
+                    
                     Center(
                       child: Container(
                         width: 40,
@@ -116,7 +116,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                       ),
                     ),
 
-                    // Header: Tiêu đề và Nút chọn ngày
+                    
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -134,7 +134,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                             ),
                           ],
                         ),
-                        // Nút chọn lịch
+                        
                         IconButton(
                           onPressed: () => _selectDate(context),
                           icon: const Icon(
@@ -147,7 +147,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Khu vực hiển thị ngày đang chọn và nút bỏ chọn
+                    
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                       decoration: BoxDecoration(
@@ -221,7 +221,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Thẻ TabBar phân chia loại lịch trình
+                    
                     const TabBar(
                       indicatorColor: AppTheme.neonGreen,
                       labelColor: AppTheme.neonGreen,
@@ -235,7 +235,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Nội dung phân lớp
+                    
                     Expanded(
                       child: TabBarView(
                         children: [
@@ -272,21 +272,21 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
 
     final rawHistoryList = snapshot.data!;
 
-    // Bộ lọc theo tập hoàn chỉnh vs tập lỗi và theo ngày
+    
     final historyList = rawHistoryList.where((workout) {
-      // 1. Lọc bỏ Check_in
+      
       final String rawExerciseId = (workout['exercise_id'] ?? workout['exercise_type'] ?? '').toString();
       final lowercaseId = rawExerciseId.toLowerCase();
       if (lowercaseId.contains('check_in') || lowercaseId.contains('checkin') || lowercaseId.contains('check-in')) {
         return false;
       }
 
-      // 2. Phân loại Hoàn chỉnh (< 5 lỗi) vs Tập lỗi (>= 5 lỗi)
+      
       final int incorrectPostures = (workout['incorrect_postures'] ?? 0) as int;
       if (isCorrectOnly && incorrectPostures >= 5) return false;
       if (!isCorrectOnly && incorrectPostures < 5) return false;
 
-      // 3. Lọc theo ngày
+      
       if (_selectedDate != null) {
         if (workout['created_at'] == null) return false;
         try {
@@ -590,7 +590,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
         final rawCheckInDates = (data['dates'] as List<dynamic>).map((e) => e.toString()).toList();
         final int streak = data['streak'] as int;
 
-        // Lọc theo ngày
+        
         final filteredDates = rawCheckInDates.where((dateStr) {
           if (_selectedDate == null) return true;
           try {
@@ -605,12 +605,12 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
           return _buildEmptyState();
         }
 
-        // Sắp xếp ngày điểm danh mới nhất lên đầu
+        
         filteredDates.sort((a, b) => b.compareTo(a));
 
         return Column(
           children: [
-            // Glowing Fire Streak Card
+            
             if (_selectedDate == null) ...[
               Container(
                 width: double.infinity,
@@ -801,7 +801,7 @@ class _WorkoutHistoryBottomSheetState extends State<WorkoutHistoryBottomSheet> {
     );
   }
 
-  // Mở hộp thoại xem ảnh lỗi sai vẽ khung xương toàn màn hình kèm khả năng zoom nhúm ngón tay
+  
   void _showFullScreenImage(BuildContext context, String imageUrl) {
     showDialog(
       context: context,

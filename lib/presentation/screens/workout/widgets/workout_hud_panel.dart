@@ -54,12 +54,12 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     super.initState();
     _tts = FlutterTts();
 
-    // Đảm bảo cấu hình TTS ngay khi khởi tạo
+    
     _tts.setLanguage("vi-VN");
     _tts.setSpeechRate(0.7);
     _tts.setVolume(1.0);
 
-    // CỐT LÕI: Đăng ký sự kiện khi TTS đọc xong câu
+    
     _tts.setCompletionHandler(() async {
       _isSpeaking = false;
       if (_queuedMessage != null && _queuedMessage!.isNotEmpty) {
@@ -88,7 +88,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
 
     final now = DateTime.now();
 
-    // Kiểm tra tin nhắn đếm ngược để ngắt lời phát âm thanh ngay lập tức
+    
     final isCountdown = message == 'Chuẩn bị' ||
         message == '3' ||
         message == '2' ||
@@ -103,14 +103,14 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     }
 
     if (isErrorFeedback) {
-      // Giới hạn thời gian phát cảnh báo sai tư thế: tối thiểu 4 giây giữa các lần phát để không bị lặp liên tục dồn dập
+      
       if (_lastErrorSpeechTime != null &&
           now.difference(_lastErrorSpeechTime!) < const Duration(seconds: 4)) {
         return;
       }
       _lastErrorSpeechTime = now;
     } else {
-      // Announcements chỉ phát một lần nếu trùng lặp
+      
       if (_lastSpokenMessage == message) return;
     }
 
@@ -128,14 +128,14 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
 
     final feedbackUpdated = oldWidget.feedbackMessage != widget.feedbackMessage;
 
-    // Error feedback: phát liên tục khi sai, ngừng khi đúng
+    
     if (!widget.isPostureCorrect) {
       if (widget.feedbackMessage.isNotEmpty) {
         _shakeController.forward(from: 0.0);
         _speak(widget.feedbackMessage, isErrorFeedback: true);
       }
     } else if (widget.feedbackMessage.isNotEmpty && feedbackUpdated) {
-      // Detection warning
+      
       if (widget.feedbackMessage.contains('Hiện chưa xác định')) {
         _speak(widget.feedbackMessage, isErrorFeedback: true);
       }
@@ -229,7 +229,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     if (isLandscape) {
       return Stack(
         children: [
-          // 1. THANH ĐIỀU HƯỚNG PHÍA TRÊN BÊN TRÁI
+          
           Positioned(
             top: 12,
             left: 16,
@@ -262,7 +262,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             ),
           ),
 
-          // 2. KHUNG CHỈ SỐ BÊN PHẢI (Stats Panel)
+          
           Positioned(
             top: 12,
             bottom: 12,
@@ -278,7 +278,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Header của bảng chỉ số
+                    
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -303,7 +303,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                     const Divider(color: Colors.white12, height: 16),
 
                     if (widget.isWorkoutStarted) ...[
-                      // Đã bắt đầu tập -> Hiện chỉ số
+                      
                       Text(
                         isDuration ? 'THỜI GIAN GIỮ' : 'SỐ LẦN ĐÃ TẬP',
                         style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
@@ -332,13 +332,13 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                       ),
                       const Divider(color: Colors.white12, height: 20),
 
-                      // Thông tin mục tiêu
+                      
                       if (!isDuration) ...[
                         _buildTargetInfo(widget.targetCount),
                         const Divider(color: Colors.white12, height: 20),
                       ],
 
-                      // Calories & Time
+                      
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -355,7 +355,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
                         ],
                       ),
                     ] else ...[
-                      // Chưa bắt đầu tập -> Hiện hướng dẫn căn chỉnh
+                      
                       const Row(
                         children: [
                           Icon(Icons.info_outline, color: AppTheme.neonGreen, size: 16),
@@ -387,7 +387,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             ),
           ),
 
-          // 3. KHUNG CẢNH BÁO PHẢN HỒI (Bottom Left)
+          
           if (widget.session.feedbackMessage.isNotEmpty)
             Positioned(
               bottom: 12,
@@ -454,7 +454,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
 
     return Stack(
       children: [
-        // 1. THANH ĐIỀU HƯỚNG
+        
         Positioned(
           top: 40,
           left: 20,
@@ -500,7 +500,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
           ),
         ),
 
-        // 2. KHUNG CHỈ SỐ HOẶC HƯỚNG DẪN CĂN CHỈNH
+        
         if (widget.isWorkoutStarted)
           Positioned(
             top: 110,
@@ -578,7 +578,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
             ),
           ),
 
-        // 3. KHUNG CẢNH BÁO
+        
         if (widget.session.feedbackMessage.isNotEmpty)
           Positioned(
             bottom: 40,
@@ -643,7 +643,7 @@ class _WorkoutHudPanelState extends State<WorkoutHudPanel>
     );
   }
 
-  // --- Các hàm tiện ích để code gọn hơn ---
+  
   Widget _buildIconButton(IconData icon, VoidCallback onTap) => GestureDetector(
     onTap: onTap,
     child: Container(

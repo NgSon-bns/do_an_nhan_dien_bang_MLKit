@@ -7,7 +7,7 @@ class PoseSkeletonPainter extends CustomPainter {
   final InputImageRotation rotation;
   final bool isFrontCamera;
   
-  // Trạng thái tư thế của các bộ phận để tô màu phản hồi (Xanh/Đỏ)
+  
   final bool isBackCorrect;
   final bool isLegsCorrect;
   final bool isArmsCorrect;
@@ -24,7 +24,7 @@ class PoseSkeletonPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Không vẽ gì lên màn hình để ẩn hoàn toàn các đường xương và điểm khớp tròn
+    
   }
 
   @override

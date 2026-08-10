@@ -8,7 +8,7 @@ import 'burpee_evaluator.dart';
 import 'walking_lunge_evaluator.dart';
 
 class EvaluatorFactory {
-  /// Hàm Factory khởi tạo đối tượng phân tích phù hợp với từng bài tập
+  
   static BasePoseEvaluator create(ExerciseType type) {
     switch (type) {
       case ExerciseType.push_up:

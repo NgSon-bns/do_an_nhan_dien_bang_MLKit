@@ -43,9 +43,9 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   List<Map<String, dynamic>> _todayMealLogs = [];
   List<String> _heavyExercises = [];
 
-  // Mảng lưu lịch trình 21 ngày đồng bộ từ Database
+  
   List<Map<String, dynamic>> _savedSchedule = [];
-  bool _showExerciseGroups = false; // Ẩn/Hiện chọn nhóm bài tập
+  bool _showExerciseGroups = false; 
 
   final Set<ExerciseType> _customSelectedExercises = {};
   bool _isCustomSelectionActive = false;
@@ -67,7 +67,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     'Toàn thân': 'Jumping Jack và Burpee đốt calo toàn thân, tăng nhịp tim.',
   };
 
-  // Tiêu đề hiển thị cho từng nhóm bài tập khi lịch trình được sinh tự động
+  
   static const Map<String, String> _groupWorkoutTitles = {
     'Thân trên': 'Kích hoạt bụng & Sức mạnh thân trên',
     'Thân dưới': 'Săn chắc chân mông & Đùi',
@@ -83,12 +83,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    // 1. Khởi động Timer đồng bộ định kỳ ngay lập tức để không bị chặn bởi các cuộc gọi mạng
+    
     _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _syncPendingData();
     });
 
-    // 2. Tải các dữ liệu cục bộ nhanh/offline
+    
     final selectedDate = _getSelectedDayDate(_selectedDayIndex);
     _loadCompletedExercisesForDay(selectedDate);
     _loadMealLogsForDay(selectedDate);
@@ -97,7 +97,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final yesterday = selectedDate.subtract(const Duration(days: 1));
     _loadCompletedExercisesForDay(yesterday);
 
-    // 3. Gọi các hàm tải/đồng bộ mạng dưới nền (non-blocking)
+    
     _loadUserProfile().then((_) {
       _loadHeavyExercises();
       _loadAndSyncSchedule();
@@ -112,7 +112,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     super.dispose();
   }
 
-  // Chuyển đổi qua lại giữa Enum và String để lưu Database/Prefs
+  
   List<dynamic> _encodeSchedule(List<Map<String, dynamic>> sched) {
     return sched.map((day) {
       final dayCopy = Map<String, dynamic>.from(day);
@@ -147,7 +147,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }).toList();
   }
 
-  // Đồng bộ và Tải lịch trình
+  
   Future<void> _loadAndSyncSchedule() async {
     final prefs = await SharedPreferences.getInstance();
     final user = _client.auth.currentUser;
@@ -156,7 +156,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     List<Map<String, dynamic>> tempSchedule = [];
     bool hasLocal = false;
 
-    // 1. Đọc từ Local Offline trước
+    
     final localData = prefs.getString(localKey);
     if (localData != null && localData.isNotEmpty) {
       try {
@@ -167,7 +167,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       }
     }
 
-    // 2. Fetch từ Supabase (nếu online và không có thay đổi offline chưa đồng bộ)
+    
     if (_isSupabaseInitialized && user?.id != 'guest') {
       final isPending = await _isScheduleSyncPending();
       if (!isPending) {
@@ -184,20 +184,20 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
               response['du_lieu_lich_trinh'] as List<dynamic>,
             );
             hasLocal = true;
-            // Cập nhật lại cache local
+            
             await prefs.setString(
               localKey,
               jsonEncode(_encodeSchedule(tempSchedule)),
             );
           } else if (hasLocal) {
-            // Có local nhưng chưa có DB -> đẩy lên DB
+            
             await _syncScheduleToDb(tempSchedule);
           }
         } catch (e) {
           debugPrint('Lỗi tải lịch trình DB (Offline mode): $e');
         }
       } else {
-        // Cố gắng đồng bộ lên DB ngay khi mạng kết nối lại
+        
         _syncPendingData();
       }
     }
@@ -206,7 +206,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         ? _weight / ((_height / 100) * (_height / 100))
         : 0.0;
 
-    // 3. Căn chỉnh lịch trình với ngày tuần hiện tại (mới nhất) hoặc tạo mới hoàn toàn
+    
     if (hasLocal && tempSchedule.isNotEmpty) {
       tempSchedule = _alignScheduleWithCurrentDates(tempSchedule, _selectedGoal, bmi, _age);
       await _saveScheduleLocallyAndDb(tempSchedule);
@@ -223,7 +223,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  // Căn chỉnh/Trộn lịch trình cũ từ cache với các mốc ngày mới của 3 tuần hiển thị
+  
   List<Map<String, dynamic>> _alignScheduleWithCurrentDates(
     List<Map<String, dynamic>> cachedSchedule,
     String goal,
@@ -233,7 +233,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final List<Map<String, dynamic>> aligned = [];
     const weekLabels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
 
-    // Đưa toàn bộ các ngày đã lưu vào map dạng key = date
+    
     final Map<String, Map<String, dynamic>> cacheMap = {};
     for (var day in cachedSchedule) {
       final String? date = day['date'] as String?;
@@ -261,17 +261,17 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         final String dateStr = '${dayDate.year}-${dayDate.month.toString().padLeft(2, '0')}-${dayDate.day.toString().padLeft(2, '0')}';
 
         if (cacheMap.containsKey(dateStr)) {
-          // Ngày này đã tồn tại trong lịch trình cũ -> giữ nguyên bài tập/custom và đồng bộ lại index
+          
           final cachedDay = Map<String, dynamic>.from(cacheMap[dateStr]!);
           cachedDay['day'] = globalDay;
           cachedDay['weekLabel'] = weekLabels[weekIndex];
           aligned.add(cachedDay);
           
           if (dayInWeek != 3 && dayInWeek != 7) {
-            slot++; // Giữ đồng bộ chỉ số slot xoay vòng
+            slot++; 
           }
         } else {
-          // Chưa có -> sinh bài tập mới cho ngày đó theo thuật toán xoay vòng ổn định
+          
           Map<String, dynamic> dayData;
           if (dayInWeek == 3) {
             dayData = _buildRestDay(isEndOfWeek: false);
@@ -294,7 +294,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     return aligned;
   }
 
-  // Lưu lịch trình lên Local và DB
+  
   Future<void> _saveScheduleLocallyAndDb(
     List<Map<String, dynamic>> sched,
   ) async {
@@ -333,7 +333,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  // Trigger cập nhật lịch trình từ HÔM NAY đổ đi (khi đổi mục tiêu/chỉ số)
+  
   Future<void> _triggerScheduleUpdateFromToday(double currentBmi) async {
     if (_savedSchedule.isEmpty) return;
 
@@ -343,10 +343,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final int todayIndex = DateTime.now().weekday - 1;
     final int safeTodayIndex = 7 + todayIndex;
 
-    // Giữ nguyên từ 0 -> safeTodayIndex - 1. Ghi đè từ safeTodayIndex -> 20.
+    
     List<Map<String, dynamic>> mergedSchedule = List.from(_savedSchedule);
     for (int i = safeTodayIndex; i < mergedSchedule.length; i++) {
-      // Đảm bảo bài tập của ngày hôm nay/ngày mai không trùng lặp liên tiếp
+      
       if (i > 0) {
         mergedSchedule[i] = _ensureNoConsecutiveDuplicate(
           newAdaptive[i],
@@ -360,7 +360,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     await _saveScheduleLocallyAndDb(mergedSchedule);
   }
 
-  // Helper đảm bảo ngày hôm sau không trùng bài tập với ngày hôm trước
+  
   Map<String, dynamic> _ensureNoConsecutiveDuplicate(
     Map<String, dynamic> currentDay,
     Map<String, dynamic> previousDay,
@@ -369,8 +369,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       return currentDay;
     }
 
-    // Ép kiểu an toàn: dữ liệu cũ có thể lưu 'type' dạng String (trước khi
-    // decode) hoặc ExerciseType, tránh crash làm dừng cả tiến trình lưu lịch.
+    
+    
     ExerciseType? _safeType(dynamic exMap) {
       if (exMap is! Map) return null;
       final raw = exMap['type'];
@@ -394,7 +394,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         filteredExercises.add(Map<String, dynamic>.from(ex as Map));
         continue;
       }
-      // Nếu bài tập trùng với ngày hôm trước, tự động đổi sang bài thay thế an toàn
+      
       if (prevExercises.contains(type)) {
         final alternativeType = _getAlternativeExercise(type);
         filteredExercises.add({
@@ -626,7 +626,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       return;
     }
 
-    // Cập nhật số lượng bài tập chưa sync cục bộ
+    
     try {
       final prefs = await SharedPreferences.getInstance();
       final data = prefs.getString('cached_completed_workouts_${user.id}');
@@ -640,7 +640,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       print('[syncPendingData] Lỗi đếm số bài tập chưa sync: $e');
     }
 
-    // 1. Đồng bộ profile nếu cần
+    
     if (await _isProfileSyncPending()) {
       final local = await _loadProfileLocally();
       if (local != null) {
@@ -664,7 +664,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       }
     }
 
-    // 2. Đồng bộ lịch trình nếu cần
+    
     if (await _isScheduleSyncPending()) {
       if (_savedSchedule.isNotEmpty) {
         try {
@@ -681,12 +681,12 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         }
       }
     }
-    // 3. Đồng bộ lịch sử tập luyện hoàn thành (lich_su_tap_luyen) nếu có các buổi tập offline chưa đồng bộ
+    
     try {
       final bool didSync = await DatabaseService().syncPendingWorkouts();
 
       if (didSync) {
-        // Tải lại lịch sử tập của hôm nay và hôm qua để cập nhật giao diện
+        
         final selectedDate = _getSelectedDayDate(_selectedDayIndex);
         await _loadCompletedExercisesForDay(selectedDate);
         final yesterday = selectedDate.subtract(const Duration(days: 1));
@@ -859,7 +859,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         updatedSchedule[targetIndex]['exercises'] = customList;
         updatedSchedule[targetIndex]['isRest'] = false;
 
-        // Cập nhật cascade từ ngày đó trở đi
+        
         for (int i = targetIndex + 1; i < updatedSchedule.length; i++) {
           updatedSchedule[i] = _ensureNoConsecutiveDuplicate(
             updatedSchedule[i],
@@ -1191,8 +1191,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   List<Map<String, dynamic>> _postProcessAdaptiveSchedule(
     List<Map<String, dynamic>> rawSchedule,
   ) {
-    // rawSchedule đã là danh sách đầy đủ 21 ngày (3 tuần) do
-    // _generateAdaptiveSchedule sinh ra tự động, không cần nhân bản nữa.
+    
+    
     final List<Map<String, dynamic>> processed = [];
     for (int index = 0; index < rawSchedule.length; index++) {
       final day = rawSchedule[index];
@@ -1208,7 +1208,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         ExerciseType originalType = exMap['type'] as ExerciseType;
         ExerciseType adaptedType = _getAdaptedExerciseType(originalType);
 
-        // Kiểm tra không trùng bài với ngày trước đó
+        
         if (index > 0 && processed[index - 1]['isRest'] != true) {
           final prevExercises =
               (processed[index - 1]['exercises'] as List?)
@@ -1293,7 +1293,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   }
 
   Future<void> _loadUserProfile() async {
-    // 1. Tải Profile từ Local Cache trước để giao diện hiện lập tức (Offline-first)
+    
     final localProfile = await _loadProfileLocally();
     if (localProfile != null) {
       if (mounted) {
@@ -1329,7 +1329,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     try {
       final profile = await _authService.getCurrentUserProfile();
       if (profile != null && mounted) {
-        // Chỉ cập nhật từ DB nếu không có chỉnh sửa offline đang chờ đồng bộ
+        
         if (!(await _isProfileSyncPending())) {
           setState(() {
             _userName = profile['ho_ten'] ?? 'Trainer';
@@ -1358,7 +1358,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             }
           });
 
-          // Lưu cache mới nhất
+          
           await _saveProfileLocally({
             'ho_ten': _userName,
             'can_nang': _weight,
@@ -1377,7 +1377,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _isLoading = false;
         });
       }
-      // Thử tự động đồng bộ dữ liệu ngoại tuyến nếu có mạng lại
+      
       _syncPendingData();
     }
   }
@@ -1406,7 +1406,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       }
     }
 
-    // 1. Cập nhật State cục bộ lập tức
+    
     setState(() {
       _height = newHeight;
       _weight = newWeight;
@@ -1414,7 +1414,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       _gender = newGender;
     });
 
-    // 2. Lưu vào Cache cục bộ lập tức
+    
     final localProfile = {
       'chieu_cao': newHeight,
       'can_nang': newWeight,
@@ -1425,14 +1425,14 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     };
     await _saveProfileLocally(localProfile);
 
-    // 3. Cập nhật lịch trình cục bộ lập tức
+    
     if (nextGoal != _selectedGoal) {
       await _updateGoal(nextGoal, currentBmi: newBmi);
     } else {
       await _triggerScheduleUpdateFromToday(newBmi);
     }
 
-    // 4. Đồng bộ lên Supabase
+    
     bool syncSuccess = false;
     if (_isSupabaseInitialized) {
       final client = Supabase.instance.client;
@@ -1490,7 +1490,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         (_height > 0 ? _weight / ((_height / 100) * (_height / 100)) : 0.0);
     await _triggerScheduleUpdateFromToday(bmi);
 
-    // Lưu cục bộ mục tiêu mới
+    
     final currentLocal = await _loadProfileLocally() ?? {};
     currentLocal['muc_tieu'] = newGoal;
     await _saveProfileLocally(currentLocal);
@@ -1590,7 +1590,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
       for (final row in completedRecords) {
         final String? sourceTag = row['source_tag'] as String? ?? row['loai_bai_tap'] as String?;
-        // Chỉ tính các bài tập được kích hoạt từ HLV AI (hoặc tích thủ công trong AI HLV)
+        
         if (sourceTag != 'recommended') {
           continue;
         }
@@ -1938,15 +1938,15 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     ExerciseType.plank => 0.0,
   };
 
-  // Số buổi "Toàn thân" mỗi tuần theo mục tiêu:
-  // - lose: 2 buổi/tuần | - maintain: 1 buổi/tuần | - build: 1 buổi / 2 tuần
-  // weekIndex: 0 = Tuần trước, 1 = Tuần này, 2 = Tuần sau
+  
+  
+  
   int _weeklyFullBodyCount(String goal, int weekIndex) {
     switch (goal) {
       case 'lose':
         return 2;
       case 'build':
-        // 1 buổi mỗi 2 tuần -> so le giữa các tuần
+        
         return weekIndex % 2 == 0 ? 1 : 0;
       case 'maintain':
       default:
@@ -1954,8 +1954,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     }
   }
 
-  // Sắp xếp nhóm bài cho 5 ngày tập trong tuần (bỏ qua 2 ngày nghỉ),
-  // đảm bảo 2 ngày tập liên tiếp không cùng nhóm bài tập.
+  
+  
   List<String> _groupPatternForWeek(int fullBodyCount) {
     switch (fullBodyCount) {
       case 2:
@@ -2013,10 +2013,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     };
   }
 
-  // Tự động sinh lịch trình 21 ngày (3 tuần) dựa trên mục tiêu, thay cho
-  // danh sách cố định trước đây. Ngày nghỉ giữ nguyên vị trí (ngày 3 và 7
-  // mỗi tuần), các nhóm bài tập được xoay vòng để không trùng nhau giữa
-  // 2 ngày tập liên tiếp.
+  
+  
+  
+  
   List<Map<String, dynamic>> _generateAdaptiveSchedule(
     String goal,
     double bmi,
@@ -2026,10 +2026,10 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     const weekLabels = ['Tuần trước', 'Tuần này', 'Tuần sau'];
 
     for (int weekIndex = 0; weekIndex < 3; weekIndex++) {
-      // Tìm ngày thứ hai của tuần tương ứng
+      
       final DateTime selectedWeekMonday = _getSelectedDayDate(weekIndex * 7);
 
-      // Tính số tuần kể từ mốc cố định ngày 05/01/2026 (một ngày Thứ Hai) để làm stableWeekIndex
+      
       final DateTime epoch = DateTime(2026, 1, 5);
       final DateTime mondayUtc = DateTime.utc(selectedWeekMonday.year, selectedWeekMonday.month, selectedWeekMonday.day);
       final DateTime epochUtc = DateTime.utc(epoch.year, epoch.month, epoch.day);
@@ -2042,7 +2042,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
       for (int dayInWeek = 1; dayInWeek <= 7; dayInWeek++) {
         final int globalDay = weekIndex * 7 + dayInWeek;
-        // Tính ngày thực tế tương ứng với ngày trong danh sách đề xuất
+        
         final DateTime dayDate = _getSelectedDayDate(globalDay - 1);
         final String dateStr = '${dayDate.year}-${dayDate.month.toString().padLeft(2, '0')}-${dayDate.day.toString().padLeft(2, '0')}';
 

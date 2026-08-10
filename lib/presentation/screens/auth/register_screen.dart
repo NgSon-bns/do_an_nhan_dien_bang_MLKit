@@ -82,8 +82,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      // Nếu email confirmation bị tắt trong Supabase, user được tạo và tự động đăng nhập.
-      // Khi đó ta tạo profile ngay lập tức và đi thẳng vào trang chủ.
+      
+      
       if (response.session != null && response.user != null) {
         await _authService.createProfile(
           userId: response.user!.id,
@@ -251,7 +251,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 28),
 
-        // Khung nhập mã OTP (hỗ trợ cả 6 và 8 chữ số)
+        
         TextFormField(
           controller: _otpController,
           keyboardType: TextInputType.number,

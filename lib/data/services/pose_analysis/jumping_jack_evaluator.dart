@@ -9,7 +9,7 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
   bool _isPostureCorrectInCurrentRep = true;
   int _reps = 0;
   int _errorFrames = 0;
-  final int _maxAllowedErrorFrames = 4; // Lọc nhiễu khung hình
+  final int _maxAllowedErrorFrames = 4; 
 
   @override
   void reset() {
@@ -53,20 +53,20 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
       double feetDistance = PoseMath.calculateDistance(leftAnkle!, rightAnkle!);
       double feetRatio = feetDistance / shoulderWidth;
 
-      // ML Kit có gốc tọa độ Y hướng xuống dưới: Cổ tay cao hơn vai thì wrist.y < shoulder.y
+      
       bool leftArmUp = leftWrist!.y < leftShoulder.y;
       bool rightArmUp = rightWrist!.y < rightShoulder.y;
       bool armsAreUp = leftArmUp && rightArmUp;
 
-      // Đơn giản hóa: Tay hạ xuống dưới vai
+      
       bool armsAreDown = leftWrist.y > leftShoulder.y && rightWrist.y > rightShoulder.y;
 
-      bool feetAreWide = feetRatio > 1.30; // Thả lỏng hơn để dễ nhận diện nhảy dạng chân (1.45 -> 1.30)
-      bool feetAreClosed = feetRatio < 1.25; // Thả lỏng hơn để dễ nhận diện chân khép lại (1.15 -> 1.25)
+      bool feetAreWide = feetRatio > 1.30; 
+      bool feetAreClosed = feetRatio < 1.25; 
 
       bool isCurrentPostureCorrect = true;
 
-      // Đánh giá tư thế lỗi thời gian thực
+      
       if (feetAreWide && !armsAreUp) {
         isCurrentPostureCorrect = false;
         isArmsCorrect = false;
@@ -77,14 +77,14 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
         feedback = 'Nhảy dạng chân rộng ra hơn!';
       }
 
-      // Cập nhật bộ lọc lỗi
+      
       if (!isCurrentPostureCorrect) {
         _errorFrames++;
       } else {
-        _errorFrames = 0; // Reset khi tư thế đúng trở lại
+        _errorFrames = 0; 
       }
 
-      // Áp dụng bộ lọc nhiễu liên tiếp
+      
       if (_errorFrames > _maxAllowedErrorFrames) {
         isPostureCorrect = false;
         if (_motionState == 'ACTIVE' || feetAreWide || armsAreUp) {
@@ -92,14 +92,14 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
         }
       }
 
-      // Thuật toán đếm lần
+      
       if (_motionState == 'NEUTRAL') {
         if (feetAreWide && armsAreUp) {
-          _motionState = 'ACTIVE'; // Đạt vị trí đỉnh nhảy
+          _motionState = 'ACTIVE'; 
         }
       } else if (_motionState == 'ACTIVE') {
         if (feetAreClosed && armsAreDown) {
-          _motionState = 'NEUTRAL'; // Về lại vị trí chuẩn
+          _motionState = 'NEUTRAL'; 
           if (_isPostureCorrectInCurrentRep) {
             shouldCountRep = true;
             _reps++;
@@ -107,12 +107,12 @@ class JumpingJackEvaluator extends BasePoseEvaluator {
             isPostureCorrect = false;
             feedback = 'Lần tập không được tính do sai tư thế!';
           }
-          _isPostureCorrectInCurrentRep = true; // Reset cho rep tiếp theo
-          _errorFrames = 0; // Reset bộ lọc lỗi khi hoàn thành rep
+          _isPostureCorrectInCurrentRep = true; 
+          _errorFrames = 0; 
         }
       }
 
-      // Nếu tập đúng: hiển thị lời khích lệ hoặc số rep
+      
       if (isPostureCorrect) {
         if (shouldCountRep) {
           feedback = "Tốt lắm!";

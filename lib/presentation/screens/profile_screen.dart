@@ -31,7 +31,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _message;
   bool _isSuccessMessage = true;
 
-  // Lịch sử tập luyện
+  
   List<Map<String, dynamic>> _recentWorkouts = [];
   bool _isLoadingWorkouts = true;
 
@@ -139,7 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleLogout() async {
-    // Hiển thị dialog xác nhận đăng xuất
+    
     bool confirm =
         await showDialog(
           context: context,
@@ -172,7 +172,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (!mounted) return;
 
-    // Chuyển hướng về màn hình đăng nhập và xóa toàn bộ stack navigation
+    
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
@@ -209,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Avatar & Email hiển thị tĩnh
+                    
                     Center(
                       child: Column(
                         children: [
@@ -238,7 +238,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    // Thông điệp trạng thái lưu profile
+                    
                     if (_message != null) ...[
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -268,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(height: 20),
                     ],
 
-                    // Ô chỉnh sửa Họ tên
+                    
                     TextFormField(
                       controller: _nameController,
                       style: const TextStyle(color: Colors.white),
@@ -302,10 +302,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Cân nặng & Chiều cao hàng ngang
+                    
                     Row(
                       children: [
-                        // Cân nặng
+                        
                         Expanded(
                           child: TextFormField(
                             controller: _weightController,
@@ -346,7 +346,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(width: 16),
-                        // Chiều cao
+                        
                         Expanded(
                           child: TextFormField(
                             controller: _heightController,
@@ -390,7 +390,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Ô nhập Độ tuổi
+                    
                     TextFormField(
                       controller: _ageController,
                       keyboardType: TextInputType.number,
@@ -427,7 +427,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Chọn Giới tính
+                    
                     DropdownButtonFormField<String>(
                       value: _selectedGender,
                       dropdownColor: AppTheme.cardBackground,
@@ -479,7 +479,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 36),
 
-                    // Nút Lưu thông tin
+                    
                     ElevatedButton.icon(
                       onPressed: _isSaving ? null : _saveProfile,
                       icon: _isSaving
@@ -516,7 +516,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    // Tiêu đề lịch sử tập luyện
+                    
                     const Row(
                       children: [
                         Icon(
@@ -578,7 +578,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ? exerciseId
                                   : '';
 
-                              // Dịch tên bài tập
+                              
                               String displayName = 'Hoạt động thể chất';
                               IconData displayIcon = Icons.fitness_center;
                               Color iconColor = AppTheme.neonGreen;
@@ -608,7 +608,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 displayIcon = Icons.fitness_center;
                               }
 
-                              // Định dạng thời gian
+                              
                               String dateText = '';
                               try {
                                 final String? createdAt =
@@ -768,7 +768,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                     const SizedBox(height: 32),
 
-                    // Nút Đăng xuất
+                    
                     OutlinedButton.icon(
                       onPressed: _handleLogout,
                       icon: const Icon(

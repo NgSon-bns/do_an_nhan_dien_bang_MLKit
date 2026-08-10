@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // Đăng nhập thành công, chuyển hướng vào màn hình Dashboard chính
+      
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -100,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo / Icon thể hình
+                  
                   Center(
                     child: Container(
                       padding: const EdgeInsets.all(20),
@@ -118,7 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   
-                  // Tiêu đề chào mừng
+                  
                   const Text(
                     'AuraFit AI',
                     textAlign: TextAlign.center,
@@ -142,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 36),
 
-                  // Banner cảnh báo chưa cấu hình Supabase
+                  
                   if (isOffline) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -167,7 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 20),
                   ],
 
-                  // Bảng thông báo lỗi
+                  
                   if (_errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -192,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 20),
                   ],
 
-                  // Ô nhập Email
+                  
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -232,7 +232,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Ô nhập Mật khẩu
+                  
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
@@ -312,7 +312,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Nút Đăng nhập / Bút Offline
+                  
                   ElevatedButton(
                     onPressed: (isOffline || _isLoading) ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
@@ -342,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Nút TRẢI NGHIỆM OFFLINE
+                  
                   OutlinedButton.icon(
                     onPressed: () {
                       Navigator.pushReplacement(
@@ -371,7 +371,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Liên kết Đăng ký
+                  
                   if (!isOffline)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,

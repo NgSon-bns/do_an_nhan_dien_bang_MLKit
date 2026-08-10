@@ -7,7 +7,7 @@ import 'pose_analysis_result.dart';
 class PlankEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.45;
 
-  // Bộ lọc nhiễu
+  
   int _errorFrames = 0;
   final int _maxAllowedErrorFrames = 10;
 
@@ -32,22 +32,22 @@ class PlankEvaluator extends BasePoseEvaluator {
         (_isLandmarkVisible(knee) || _isLandmarkVisible(ankle));
   }
 
-  /// KIỂM TRA ĐIỀU KIỆN TƯ THẾ NẰM NGANG (PLANK GATE)
-  /// Trả về true nếu người dùng thực sự đang nằm ngang/song song với mặt đất
+  
+  
   bool _isInPlankPosition(PoseLandmark shoulder, PoseLandmark legJoint) {
     final double dx = (shoulder.x - legJoint.x).abs();
     final double dy = (shoulder.y - legJoint.y).abs();
 
-    // 1. Nếu khoảng cách X quá nhỏ mà Y quá lớn -> Người dùng đang đứng/ngồi đứng.
-    // Thân người Plank chuẩn sẽ trãi dài theo trục X nhiều hơn hoặc tương đương trục Y.
+    
+    
     if (dx < 0.15) return false;
 
-    // 2. Tính góc nghiên của đường Vai - Chân so với phương nằm ngang (Đơn vị: Độ)
-    // atan2(dy, dx) trả về radian của độ dốc thân người
+    
+    
     final double bodyInclineAngle = math.atan2(dy, dx) * (180 / math.pi);
 
-    // Góc nghiêng so với mặt đất nằm ngang thường nhỏ hơn 40-45 độ khi tập Plank.
-    // Khi đứng thẳng, góc này sẽ xấp xỉ 70 - 90 độ.
+    
+    
     const double maxPlankInclineAngle = 40.0;
 
     return bodyInclineAngle <= maxPlankInclineAngle;
@@ -86,11 +86,11 @@ class PlankEvaluator extends BasePoseEvaluator {
       final bool hasAnkle = _isLandmarkVisible(ankle);
       final legJoint = hasAnkle ? ankle! : knee!;
 
-      // -------------------------------------------------------------
-      // 1. KIỂM TRA ĐÃ VÀO VỊ TRÍ PLANK CHƯA (NẰM NGANG CHƯA)
-      // -------------------------------------------------------------
+      
+      
+      
       if (!_isInPlankPosition(shoulder, legJoint)) {
-        _errorFrames = 0; // Reset đếm lỗi
+        _errorFrames = 0; 
         return PoseAnalysisResult(
           isPostureCorrect: false,
           feedbackMessage: 'Hãy nằm ngang xuống để bắt đầu tập Plank!',
@@ -101,9 +101,9 @@ class PlankEvaluator extends BasePoseEvaluator {
         );
       }
 
-      // -------------------------------------------------------------
-      // 2. ĐÁNH GIÁ CHẤT LƯỢNG TƯ THẾ PLANK (KHI ĐÃ NẰM NGANG)
-      // -------------------------------------------------------------
+      
+      
+      
       double bodyLineAngle = (shoulder.x < hip.x)
           ? PoseMath.calculateAngle(shoulder, hip, legJoint)
           : PoseMath.calculateAngle(legJoint, hip, shoulder);
@@ -127,7 +127,7 @@ class PlankEvaluator extends BasePoseEvaluator {
         }
       }
 
-      // Logic bộ lọc nhiễu
+      
       if (!isCurrentPostureCorrect) {
         _errorFrames++;
       } else {

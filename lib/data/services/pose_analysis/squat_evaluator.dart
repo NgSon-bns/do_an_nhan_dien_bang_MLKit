@@ -9,10 +9,10 @@ class SquatEvaluator extends BasePoseEvaluator {
   bool _isPostureCorrectInCurrentRep = true;
   int _reps = 0;
 
-  // Biến lưu trữ mốc khi đứng thẳng
+  
   double? _standingHipY;
   
-  // Bộ lọc nhiễu khung hình
+  
   int _errorFrames = 0;
   final int _maxAllowedErrorFrames = 5;
 
@@ -46,16 +46,16 @@ class SquatEvaluator extends BasePoseEvaluator {
       return PoseAnalysisResult(isPostureCorrect: false, feedbackMessage: 'Điều chỉnh tư thế để thấy rõ hông và chân.');
     }
 
-    // 1. Tính toán vị trí hiện tại
+    
     double currentHipY = (leftHip!.y + rightHip!.y) / 2;
     double kneeAngle = PoseMath.getElbowAngle(rightHip, rightKnee!, rightAnkle!);
 
-    // 2. Thiết lập mốc đứng thẳng (Calibrate)
+    
     if (kneeAngle > 160) {
       _standingHipY = currentHipY;
     }
 
-    // 3. Kiểm tra tư thế lưng với bộ lọc nhiễu
+    
     bool isCurrentPostureCorrect = true;
     if (_isLandmarkVisible(rightShoulder) && _isLandmarkVisible(rightHip)) {
       double backLeanAngle = PoseMath.calculateAngleToVertical(rightShoulder!, rightHip);
@@ -65,20 +65,20 @@ class SquatEvaluator extends BasePoseEvaluator {
       }
     }
 
-    // Cập nhật bộ lọc lỗi
+    
     if (!isCurrentPostureCorrect) {
       _errorFrames++;
     } else {
-      _errorFrames = 0; // Reset khi tư thế đúng trở lại
+      _errorFrames = 0; 
     }
 
-    // Áp dụng bộ lọc: chỉ đánh dấu sai nếu vi phạm liên tiếp 5 khung hình
+    
     if (_errorFrames > _maxAllowedErrorFrames) {
       isPostureCorrect = false;
       if (_motionState == 'DOWN') _isPostureCorrectInCurrentRep = false;
     }
 
-    // 4. Logic Squat kết hợp (Góc gối + Độ hạ hông)
+    
     bool isSquattingDeepEnough = _standingHipY != null && (currentHipY - _standingHipY!) > PoseMath.calculateDistance(rightHip, rightKnee)*0.7 ;
 
     if (kneeAngle < 110 && isSquattingDeepEnough) {
@@ -100,7 +100,7 @@ class SquatEvaluator extends BasePoseEvaluator {
       }
     }
 
-    // Nếu tập đúng
+    
     if (isPostureCorrect) {
       if (shouldCountRep) {
         feedback = "Tốt lắm!";

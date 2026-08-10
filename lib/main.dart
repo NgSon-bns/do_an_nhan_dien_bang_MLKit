@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import để dùng SystemChrome
+import 'package:flutter/services.dart'; 
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -9,15 +9,15 @@ import 'package:demo/presentation/screens/auth/login_screen.dart';
 import 'package:demo/presentation/screens/exercise_list_screen.dart';
 
 void main() async {
-  // 1. Đảm bảo các dịch vụ hệ thống của Flutter được khởi tạo trước
+  
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. KHÓA MÀN HÌNH CHỈ CHO PHÉP CHIỀU DỌC (PORTRAIT)
+  
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
 
-  // Khởi tạo Supabase
+  
   bool isSupabaseInitialized = false;
 
   const String supabaseUrl = 'https://cldjakuqxojmtethpbyg.supabase.co';
@@ -27,14 +27,14 @@ void main() async {
   try {
     await Supabase.initialize(
       url: supabaseUrl,
-      anonKey: supabaseAnonKey, // Đã đổi publishableKey -> anonKey theo chuẩn Supabase Flutter
+      anonKey: supabaseAnonKey, 
     );
     isSupabaseInitialized = true;
   } catch (e) {
     debugPrint('Lỗi khởi tạo Supabase: $e');
   }
 
-  // Lấy danh sách camera có sẵn trên thiết bị di động
+  
   List<CameraDescription> cameras = [];
   try {
     cameras = await availableCameras();

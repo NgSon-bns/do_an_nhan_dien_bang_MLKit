@@ -139,7 +139,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         ),
       );
 
-      // Quay lại màn hình Login
+      
       Navigator.pop(context);
     } catch (e) {
       String msg = e.toString();
@@ -344,7 +344,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ),
           const SizedBox(height: 32),
 
-          // Hộp thông báo gửi mã thành công (màu xanh)
+          
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -391,7 +391,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             const SizedBox(height: 20),
           ],
 
-          // Nhập OTP
+          
           TextFormField(
             controller: _otpController,
             keyboardType: TextInputType.number,
@@ -419,7 +419,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Mật khẩu mới
+          
           TextFormField(
             controller: _newPasswordController,
             obscureText: !_isPasswordVisible,
@@ -460,7 +460,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Xác nhận mật khẩu mới
+          
           TextFormField(
             controller: _confirmPasswordController,
             obscureText: true,

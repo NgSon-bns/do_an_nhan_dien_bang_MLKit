@@ -7,12 +7,12 @@ class PushUpEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
-  bool _isPushUpDeepEnoughInCurrentRep = false; // Theo dõi độ sâu đạt được trong rep hiện tại
+  bool _isPushUpDeepEnoughInCurrentRep = false; 
   bool _isRightSideVisible = true;
   int _reps = 0;
 
-  double _standingShoulderY = 0; // Mốc để so sánh độ sâu
-  int _errorFrames = 0; // Bộ lọc nhiễu khung hình
+  double _standingShoulderY = 0; 
+  int _errorFrames = 0; 
   bool isBackCorrect = true;
 
   @override
@@ -37,7 +37,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
     String feedback = '';
     bool shouldCountRep = false;
 
-    // Lấy landmark
+    
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
@@ -58,7 +58,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
       );
     }
 
-    // 1. Xác định góc khuỷu tay
+    
     double? elbowAngle;
     if ((rightShoulder!.x < rightHip!.x) &&
         _isLandmarkVisible(rightShoulder) &&
@@ -91,27 +91,27 @@ class PushUpEvaluator extends BasePoseEvaluator {
     final currentShoulder = _isRightSideVisible ? rightShoulder! : leftShoulder!;
     final currentHip = _isRightSideVisible ? rightHip! : leftHip!;
 
-    // 2. Calibrate mốc (khi tay thẳng hoặc chưa có mốc khởi tạo)
+    
     if (elbowAngle > 160 || _standingShoulderY == 0) {
       _standingShoulderY = currentShoulder.y;
     }
 
-    // Tính độ dài thân người (khoảng cách giữa vai và hông) để làm mốc tỷ lệ cơ thể
+    
     double torsoLength = PoseMath.calculateDistance(currentShoulder, currentHip);
-    if (torsoLength < 1) torsoLength = 1; // Tránh lỗi chia cho 0
+    if (torsoLength < 1) torsoLength = 1; 
 
-    // Kiểm tra độ dịch chuyển đi xuống chuẩn hóa theo tỷ lệ cơ thể
+    
     if (_standingShoulderY > 0) {
       double verticalDisplacement = currentShoulder.y - _standingShoulderY;
       double normalizedDisplacement = verticalDisplacement / torsoLength;
 
-      // Nếu độ sâu hạ người đạt tối thiểu 10% chiều dài thân người, ghi nhận đạt độ sâu của rep này
+      
       if (normalizedDisplacement >= 0.10) {
         _isPushUpDeepEnoughInCurrentRep = true;
       }
     }
 
-    // 3. Phân tích tư thế lưng (Shoulder - Hip - Knee)
+    
     double backAngle = (rightShoulder!.x > rightHip!.x)
         ? PoseMath.calculateAngle(
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
@@ -124,13 +124,13 @@ class PushUpEvaluator extends BasePoseEvaluator {
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
           );
 
-    // Tăng nhẹ dung sai góc thẳng hàng để tránh báo lỗi nhạy cảm do nhiễu camera (từ 160->152, 195->200)
+    
     bool isBackAligned = (backAngle >= 152 && backAngle <= 200);
 
-    // 4. Lọc nhiễu tư thế
+    
     if (!isBackAligned) {
       _errorFrames++;
-      if (_errorFrames > 8) { // Cần sai tư thế liên tục > 8 frame (~0.3s) mới báo lỗi đỏ
+      if (_errorFrames > 8) { 
         isPostureCorrect = false;
         feedback = 'Giữ vai hông và chân thẳng hàng!';
         _isPostureCorrectInCurrentRep = false;
@@ -145,10 +145,10 @@ class PushUpEvaluator extends BasePoseEvaluator {
       if (_motionState == 'UP') {
         _motionState = 'DOWN';
         _isPostureCorrectInCurrentRep = true;
-        _isPushUpDeepEnoughInCurrentRep = false; // Reset độ sâu cho rep tập mới
+        _isPushUpDeepEnoughInCurrentRep = false; 
         print(
           'down Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: ${currentShoulder.y}, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $_isPushUpDeepEnoughInCurrentRep,shouldCountRep: $shouldCountRep',
-        ); // Reset trạng thái khi bắt đầu xuống
+        ); 
       }
     } else if (elbowAngle > 150) {
       if (_motionState == 'DOWN') {
@@ -171,7 +171,7 @@ class PushUpEvaluator extends BasePoseEvaluator {
       }
     }
 
-    // Nếu tập đúng
+    
     if (isPostureCorrect) {
       if (shouldCountRep) {
         feedback = "Tốt lắm!";
