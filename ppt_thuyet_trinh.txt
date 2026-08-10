@@ -1,0 +1,293 @@
+========================================================================
+ĐỀ CƯƠNG CHI TIẾT SLIDE THUYẾT TRÌNH BÁO CÁO TỐT NGHIỆP
+ĐỀ TÀI: HỆ THỐNG GIÁM SÁT BÀI TẬP THỂ THAO TRÊN ANDROID SỬ DỤNG NHẬN DIỆN TƯ THẾ CƠ THỂ
+========================================================================
+
+* Tài liệu này gồm 24 Slide được soạn thảo đầy đủ, ngắn gọn theo chuẩn báo cáo.
+* Mỗi slide có 3 phần: Tiêu đề slide, Nội dung hiển thị (Bullet points) và Gợi ý lời nói thuyết trình.
+* Các tệp ảnh minh họa được ký hiệu dạng: [Tên ảnh: ...] để bạn dễ chèn.
+
+------------------------------------------------------------------------
+SLIDE 1: TRANG BÌA (MỞ ĐẦU)
+------------------------------------------------------------------------
+- Tiêu đề slide: Báo Cáo Tốt Nghiệp Đại Học
+- Nội dung hiển thị:
+  + Đề tài: HỆ THỐNG GIÁM SÁT BÀI TẬP THỂ THAO TRÊN ANDROID SỬ DỤNG NHẬN DIỆN TƯ THẾ CƠ THỂ
+  + Giảng viên hướng dẫn: ThS. Huỳnh Thanh Tú
+  + Sinh viên thực hiện: Hồ Anh Tiến & Bùi Nguyễn Sơn
+  + Đơn vị: Trường Đại học Công nghệ Sài Gòn - Khoa Công nghệ Thông tin
+- Ảnh minh họa: [Ảnh: logo_stu.png] (Đặt ở góc hoặc chính giữa phía trên)
+- Gợi ý lời nói: "Kính chào thầy cô trong Hội đồng phản biện. Chúng em là Hồ Anh Tiến và Bùi Nguyễn Sơn, sinh viên khoa CNTT trường STU. Hôm nay chúng em xin phép được trình bày đề tài tốt nghiệp của mình..."
+
+------------------------------------------------------------------------
+SLIDE 2: ĐẶT VẤN ĐỀ (LÝ DO CHỌN ĐỀ TÀI)
+------------------------------------------------------------------------
+- Tiêu đề slide: Đặt Vấn Đề (Lý Do Chọn Đề Tài)
+- Nội dung hiển thị:
+  + Nhu cầu rèn luyện sức khỏe tại nhà tăng cao.
+  + Hạn chế của phương pháp truyền thống: Không có huấn luyện viên trực tiếp, dễ tập sai tư thế dẫn đến chấn thương cơ/xương khớp.
+  + Giải pháp hiện tại (App xem video tĩnh): Chỉ mang tính 1 chiều, không tương tác, không thể sửa sai cho người dùng.
+- Ảnh minh họa: [Ảnh: chan_thuong_tap_tai_nha.jpg] (Ảnh mô phỏng người tập sai tư thế bị đau lưng/khớp gối)
+- Gợi ý lời nói: "Tập luyện tại nhà rất tiện lợi nhưng nguy cơ chấn thương cực kỳ cao do không có người chỉnh dáng. Các app hiện nay chủ yếu là video hướng dẫn tĩnh, hoàn toàn không tương tác được với người dùng. Đó là lý do chúng em phát triển hệ thống này..."
+
+------------------------------------------------------------------------
+SLIDE 3: MỤC TIÊU ĐỀ TÀI
+------------------------------------------------------------------------
+- Tiêu đề slide: Mục Tiêu Đề Tài
+- Nội dung hiển thị:
+  + Ứng dụng công nghệ AI Pose Detection cục bộ (Local AI) trên thiết bị di động.
+  + Xây dựng bộ quy tắc y sinh cá nhân hóa lịch tập (AI Coach).
+  + Đếm số rep tập tự động và sửa lỗi sai tư thế trực quan thời gian thực bằng camera trước.
+  + Đảm bảo trải nghiệm mượt mà, bảo mật thông tin và hoạt động tốt kể cả khi offline.
+- Ảnh minh họa: [Ảnh: muc_tieu_app_ai_coach.png] (Ảnh mô phỏng trợ lý AI giám sát camera)
+- Gợi ý lời nói: "Mục tiêu lớn nhất của đề tài là ứng dụng AI Pose để tạo ra một HLV ảo chạy ngay trên điện thoại, vừa thiết kế lịch tập phù hợp thể trạng, vừa trực tiếp sửa sai dáng tập qua camera."
+
+------------------------------------------------------------------------
+SLIDE 4: TỔNG QUAN KIẾN TRÚC HỆ THỐNG
+------------------------------------------------------------------------
+- Tiêu đề slide: Kiến Trúc Tổng Quan Hệ Thống
+- Nội dung hiển thị:
+  + Mô hình Hybrid: Thiết bị di động (Client) & Cloud Serverless (Supabase).
+  + Phía Client: Xử lý Pose stream cục bộ bằng Google ML Kit nhằm tối ưu hóa hiệu năng, giảm độ trễ.
+  + Phía Backend (Supabase): Đồng bộ và lưu trữ cơ sở dữ liệu (PostgreSQL), xác thực người dùng.
+- Ảnh minh họa: [Ảnh: so_do_kien_truc_lai.png] (Sơ đồ kết nối Client Flutter - Google ML Kit và Server Supabase)
+- Gợi ý lời nói: "Hệ thống của chúng em được xây dựng theo mô hình Hybrid. Client Flutter sẽ đảm nhiệm xử lý AI cục bộ để đạt tốc độ cao nhất, còn Backend Supabase sẽ đảm nhiệm lưu trữ và bảo mật dữ liệu."
+
+------------------------------------------------------------------------
+SLIDE 5: LÀN CÔNG NGHỆ - FRONTEND (CLIENT)
+------------------------------------------------------------------------
+- Tiêu đề slide: Công Nghệ Sử Dụng - Frontend
+- Nội dung hiển thị:
+  + **Flutter Framework**: Xây dựng giao diện Neon hiện đại, mượt mà, đa nền tảng.
+  + **Google ML Kit (Pose Detection API)**: Trích xuất khung xương 33 điểm mốc 3D thời gian thực.
+  + **Text-to-Speech (TTS)**: Phát giọng nói tiếng Việt nhắc nhở lỗi tư thế trực quan.
+- Ảnh minh họa: [Ảnh: logo_flutter_mlkit.png]
+- Gợi ý lời nói: "Chúng em chọn Flutter để phát triển ứng dụng di động cho giao diện mượt mà. Lõi AI sử dụng Google ML Kit chạy trực tiếp dưới máy khách giúp bảo vệ quyền riêng tư hình ảnh của người dùng và không cần gửi video lên server."
+
+------------------------------------------------------------------------
+SLIDE 6: LÀN CÔNG NGHỆ - BACKEND & DATABASE
+------------------------------------------------------------------------
+- Tiêu đề slide: Công Nghệ Sử Dụng - Backend & Database
+- Nội dung hiển thị:
+  + **Supabase Serverless**: Đơn giản hóa kiến trúc server, hỗ trợ OTP Email Authentication.
+  + **PostgreSQL Engine**: Cơ sở dữ liệu quan hệ mạnh mẽ, lưu trữ hồ sơ, lịch trình và lịch sử tập luyện.
+  + **Row Level Security (RLS)**: Phân quyền bảo mật dữ liệu ở mức dòng, ngăn chặn truy cập trái phép chéo giữa các user.
+- Ảnh minh họa: [Ảnh: logo_supabase_postgresql.png]
+- Gợi ý lời nói: "Backend sử dụng Supabase giúp tăng tốc độ phát triển. Dữ liệu được quản trị bằng PostgreSQL và được bảo mật tuyệt đối nhờ cơ chế Row Level Security, ngăn chặn hacker giả mạo token để xem thông tin của người dùng khác."
+
+------------------------------------------------------------------------
+SLIDE 7: NGHIỆP VỤ AI HLV - TÍNH CHỈ SỐ SINH HỌC
+------------------------------------------------------------------------
+- Tiêu đề slide: Tính Toán Chỉ Số Sinh Học (AI HLV)
+- Nội dung hiển thị:
+  + BMI = Cân nặng / (Chiều cao/100)^2 -> Phân loại thể trạng tự động.
+  + BMR (Mifflin-St Jeor) -> Nữ (-161), Nam (+5). Giới hạn min = 1000 kcal.
+  + Chỉ số hoạt động (PA) tự động gán theo BMI & BMR.
+  + TDEE = BMR * PA.
+  + Đưa ra Calo nạp tiêu chuẩn & Calo cần tập mục tiêu ngày (Giới hạn [80 - 350] kcal).
+- Ảnh minh họa: [Ảnh: bieu_do_cac_buoc_tinh_khoa_hoc.png] (Sơ đồ các bước tính toán BMI, BMR, TDEE, Calo nạp/tập)
+- Gợi ý lời nói: "Ứng dụng áp dụng các công thức y sinh học chuẩn quốc tế. Từ chiều cao, cân nặng, tuổi và giới tính, AI Coach sẽ tính ra chính xác lượng calo cần nạp vào và calo cần tập luyện mục tiêu trong ngày."
+
+------------------------------------------------------------------------
+SLIDE 8: SƠ ĐỒ BPMN - ĐỀ XUẤT BÀI TẬP THÍCH ỨNG
+------------------------------------------------------------------------
+- Tiêu đề slide: Quy Trình Đề Xuất Bài Tập Thích Ứng (BPMN)
+- Nội dung hiển thị:
+  + Phân làn 3 tác nhân rõ rệt: Người dùng | Hệ thống | Supabase.
+  + Mô tả chi tiết luồng chính (Các bước từ 1 đến 5):
+    * Lấy thông tin cá nhân.
+    * Kiểm tra/điền thiếu thông tin profile.
+    * Tính toán sinh học (BMI, BMR, TDEE).
+    * Phân loại thể trạng (Exclusive Gateway X) & Tính calo cần tập.
+    * Gợi ý kế hoạch lịch tập lên màn hình.
+- Ảnh minh họa: [Ảnh: bpm_de_xuat_bai_tap_luong_chinh.png] (Ảnh nửa trên sơ đồ BPMN từ Start đến Hiển thị kế hoạch)
+- Gợi ý lời nói: "Đây là sơ đồ BPMN mô tả luồng đề xuất bài tập. Sơ đồ phân chia rõ làn người dùng, hệ thống và cơ sở dữ liệu. Cổng rẽ nhánh thông tin sẽ tự động điều hướng người dùng điền thông tin nếu còn thiếu trước khi tính toán."
+
+------------------------------------------------------------------------
+SLIDE 9: SƠ ĐỒ BPMN - CÁC LUỒNG TƯƠNG TÁC PHỤ
+------------------------------------------------------------------------
+- Tiêu đề slide: Cập Nhật Lịch Tập Và Đổi Nhóm Bài Tập (BPMN)
+- Nội dung hiển thị:
+  + **Nhánh Cập nhật thông tin (Bước 6)**: Người dùng sửa profile -> Tính toán lại tức thì -> Tạo lịch tập mới đến hết tuần sau.
+  + **Nhánh Đổi nhóm bài tập (Bước 7)**: Người dùng yêu cầu đổi nhóm bài -> Hệ thống kiểm tra trùng lịch ngày mai (Exclusive Gateway X) -> Tự động dời lịch và cập nhật Supabase để tránh tập trùng nhóm 2 ngày liên tiếp.
+- Ảnh minh họa: [Ảnh: bpmn_de_xuat_bai_tap_luong_phu.png] (Ảnh nửa dưới sơ đồ BPMN chứa các luồng rẽ nhánh rẽ ngang)
+- Gợi ý lời nói: "Sơ đồ BPMN thể hiện sự chặt chẽ khi người dùng đổi nhóm bài tập. Hệ thống sẽ tự động quét kiểm tra xem nhóm mới có trùng lịch ngày mai hay không, nếu trùng sẽ dời lịch đến hết tuần sau để đảm bảo nguyên tắc cơ bắp cần thời gian phục hồi."
+
+------------------------------------------------------------------------
+SLIDE 10: NHẬN DIỆN TƯ THẾ KHUNG XƯƠNG REAL-TIME
+------------------------------------------------------------------------
+- Tiêu đề slide: Pose Detection & Trích Xuất Góc Khớp
+- Nội dung hiển thị:
+  + Google ML Kit xuất ra tọa độ 3D của 33 điểm khớp xương trên cơ thể.
+  + Thuật toán vector 3D tính góc khớp sinh học:
+    * Góc gập đầu gối (đùi & cẳng chân) cho Squat.
+    * Góc lưng so với phương ngang cho Plank.
+    * Tốc độ và khoảng cách để phát hiện nhòe hình (Motion Blur).
+- Ảnh minh họa: [Ảnh: 33_keypoints_khung_xuong_3d.jpg] (Hình ảnh vẽ khung xương neon đè lên người đang tập thực tế)
+- Gợi ý lời nói: "Trái tim của phần tập luyện là thuật toán đo góc khớp. Từ 33 điểm khớp ML Kit trả về, chúng em tính toán các góc gập khớp xương và độ nghiêng của lưng để nhận biết tư thế tập đúng hay sai."
+
+------------------------------------------------------------------------
+SLIDE 11: THUẬT TOÁN ĐẾM REP & SỬA SAI - SQUAT & PLANK
+------------------------------------------------------------------------
+- Tiêu đề slide: Logic Xử Lý Squat & Plank
+- Nội dung hiển thị:
+  + **Bài Squat (State Machine)**:
+    * Trạng thái DOWN: Khi góc gối hạ xuống dưới 110 độ.
+    * Trạng thái UP (Tính 1 Rep): Khi đứng thẳng lên góc gối > 150 độ.
+    * Cảnh báo sai tư thế: Khi đầu gối chúi quá mũi chân (khung xương chuyển đỏ + phát TTS).
+  + **Bài Plank**: Kiểm tra độ thẳng lưng. Cảnh báo khi người tập bị võng hông (hông quá thấp) hoặc cong lưng (hông quá cao).
+- Ảnh minh họa: [Ảnh: logic_state_machine_squat.png] (Sơ đồ máy trạng thái UP/DOWN của Squat)
+- Gợi ý lời nói: "Bài Squat sử dụng máy trạng thái 2 bước UP và DOWN. Nếu người dùng hạ mông chưa đủ sâu (< 110 độ), hệ thống sẽ chưa tính rep. Nếu gối nhô quá mũi chân, app sẽ đổi màu khung xương đỏ và phát loa nhắc nhở."
+
+------------------------------------------------------------------------
+SLIDE 12: THUẬT TOÁN ĐẾM REP & SỬA SAI - BURPEE
+------------------------------------------------------------------------
+- Tiêu đề slide: Logic Xử Lý Burpee & Cơ Chế Global Recovery
+- Nội dung hiển thị:
+  + **Quy trình 5 bước tuần tự**: STAND -> SQUAT -> PLANK -> RECOVER -> JUMP.
+  + Khó khăn: Người tập chuyển động rất nhanh, camera dễ bị nhòe hình (Motion Blur) làm mất dấu khớp.
+  + **Cơ chế Global Recovery**: Tự động bù đắp rep bị thiếu nếu phát hiện pha nhảy lùi Plank và pha bật nhảy Jump kết thúc thành công, giúp đếm rep không bị lỗi.
+- Ảnh minh họa: [Ảnh: 5_stages_state_machine_burpee.png] (Sơ đồ máy trạng thái 5 bước của bài Burpee)
+- Gợi ý lời nói: "Burpee là bài tập cardio phức tạp gồm 5 trạng thái liên tục. Khi chuyển động nhanh, camera rất dễ mất nét. Chúng em đã xây dựng cơ chế tự động phục hồi lỗi (Global Recovery) để bù đắp các pha trung gian nếu trạng thái bắt đầu và kết thúc đều chuẩn."
+
+------------------------------------------------------------------------
+SLIDE 13: SƠ ĐỒ BPMN - TẬP LUYỆN VỚI CAMERA AI
+------------------------------------------------------------------------
+- Tiêu đề slide: Quy Trình Luyện Tập Với Camera AI (BPMN)
+- Nội dung hiển thị:
+  + Nhận luồng hình ảnh ImageStream -> Gửi đến Module AI xử lý.
+  + Rẽ nhánh kiểm tra:
+    * Tư thế tập sai -> Hệ thống đổi viền đỏ khung xương + Phát âm thanh cảnh báo (TTS).
+    * Tư thế tập đúng -> Đưa vào bộ đếm Reps và phát âm thanh đếm số.
+  + Kết thúc: Tính toán năng lượng calo thực tế -> Lưu lịch sử -> Đồng bộ Supabase.
+- Ảnh minh họa: [Ảnh: bpmn_camera_ai_workout.png] (Sơ đồ BPMN quy trình tập luyện camera AI)
+- Gợi ý lời nói: "Đây là sơ đồ BPMN cho phần Camera AI. Luồng xử lý chạy liên tục theo thời gian thực (real-time loop). Nếu sai tư thế, hệ thống sẽ phát giọng nói hướng dẫn sửa sai ngay lập tức cho người dùng trước khi tính rep."
+
+------------------------------------------------------------------------
+SLIDE 14: ĐIỂM DANH HÀNG NGÀY & CHUỖI STREAK
+------------------------------------------------------------------------
+- Tiêu đề slide: Điểm Danh & Thuật Toán Tính Streak An Toàn
+- Nội dung hiển thị:
+  + Hệ thống điểm danh hàng ngày giúp duy trì Streak, tạo thói quen kỷ luật.
+  + Bảo mật: Thuật toán tính Streak và ngày điểm danh hợp lệ được xử lý hoàn toàn ở phía máy chủ (Server-side) thông qua PostgreSQL Function & Trigger lấy múi giờ chuẩn UTC của Server.
+  + Chống gian lận: Loại bỏ hoàn toàn khả năng người dùng thay đổi ngày giờ trên điện thoại (Client-side) để gian lận ngày điểm danh.
+- Ảnh minh họa: [Ảnh: thuat_toan_tinh_streak_database.png]
+- Gợi ý lời nói: "Để tránh việc người dùng đổi ngày giờ điện thoại nhằm hack chuỗi ngày tập liên tục (Streak), chúng em thiết kế thuật toán tính Streak chạy hoàn toàn dưới database của Supabase bằng múi giờ UTC chuẩn."
+
+------------------------------------------------------------------------
+SLIDE 15: KIẾN TRÚC OFFLINE-FIRST & ĐỒNG BỘ DỮ LIỆU
+------------------------------------------------------------------------
+- Tiêu đề slide: Cơ Chế Lưu Trữ Ngoại Tuyến (Offline-First)
+- Nội dung hiển thị:
+  + Khi mất kết nối Internet: Dữ liệu điểm danh, lịch sử tập được lưu tạm vào bộ nhớ đệm nội bộ (SharedPreferences/Hive) với cờ `is_synced = false`.
+  + Giao diện hiển thị phản hồi tức thì để nâng cao trải nghiệm người dùng.
+  + Khi thiết bị online trở lại: Tiến trình đồng bộ ngầm (Background Sync) tự động quét và đẩy toàn bộ dữ liệu chưa đồng bộ lên Supabase.
+- Ảnh minh họa: [Ảnh: luong_dong_bo_data_offline.png] (Sơ đồ luồng lưu trữ SharedPreferences và đẩy dữ liệu lên Supabase)
+- Gợi ý lời nói: "Chúng em áp dụng kiến trúc offline-first. Khi người dùng mất mạng, app vẫn lưu lịch trình bình thường và đánh dấu cờ chưa đồng bộ. Khi có mạng trở lại, tiến trình chạy ngầm sẽ tự động tải dữ liệu lên database."
+
+------------------------------------------------------------------------
+SLIDE 16: DEMO GIAO DIỆN - ĐĂNG NHẬP & HỒ SƠ THỂ CHẤT
+------------------------------------------------------------------------
+- Tiêu đề slide: Giao Diện Đăng Nhập OTP & Cập Nhật Hồ Sơ
+- Nội dung hiển thị:
+  + Màn hình nhập Email nhận mã OTP xác thực bảo mật cao.
+  + Giao diện nhập thông số cơ thể ban đầu (Chiều cao, cân nặng, tuổi, giới tính, mục tiêu tập luyện).
+  + Tone màu Neon chủ đạo nổi bật, hiện đại, thể thao.
+- Ảnh minh họa: [Ảnh: screenshot_dang_nhap_ho_so.png]
+- Gợi ý lời nói: "Đây là giao diện thực tế của ứng dụng. Người dùng đăng nhập bảo mật bằng mã OTP gửi về Email. Sau đó, họ sẽ nhập thông tin thể trạng ban đầu để làm căn cứ cho thuật toán AI Coach hoạt động."
+
+------------------------------------------------------------------------
+SLIDE 17: DEMO GIAO DIỆN - LỊCH TẬP THÍCH ỨNG
+------------------------------------------------------------------------
+- Tiêu đề slide: Giao Diện Lịch Tập Thích Ứng (AI Coach)
+- Nội dung hiển thị:
+  + Hiển thị lịch trình tập luyện 7 ngày được cá nhân hóa hoàn toàn.
+  + Hiển thị các chỉ số sinh học: BMI, BMR, TDEE trực quan.
+  + Tích hợp chức năng đổi nhóm bài tập cho ngày hiện tại (nút đổi bài an toàn).
+- Ảnh minh họa: [Ảnh: screenshot_lich_tap_thich_ung.png]
+- Gợi ý lời nói: "Đây là màn hình lịch tập thích ứng. AI Coach gợi ý chi tiết bài tập cần tập trong ngày, số lượng rep mục tiêu cùng lượng calo cần tiêu hao. Người dùng cũng có thể chủ động đổi nhóm bài tập nếu muốn."
+
+------------------------------------------------------------------------
+SLIDE 18: DEMO GIAO DIỆN - CAMERA WORKOUT & SỬA TƯ THẾ
+------------------------------------------------------------------------
+- Tiêu đề slide: Giao Diện Tập Luyện Với Camera AI
+- Nội dung hiển thị:
+  + Luồng camera trực tiếp vẽ lưới khung xương 3D khớp cơ thể thời gian thực.
+  + Biểu tượng đếm Rep, thanh tiến trình calo động.
+  + Cảnh báo viền khung xương màu Đỏ nổi bật kèm âm thanh hướng dẫn sửa lỗi tức thì.
+- Ảnh minh họa: [Ảnh: screenshot_camera_luyen_tap.png]
+- Gợi ý lời nói: "Màn hình quan trọng nhất của ứng dụng: camera tập luyện. Khung xương của người tập sẽ được vẽ đè lên hình ảnh với màu xanh lá nếu tư thế đúng, và chuyển sang màu đỏ kèm loa nhắc nhở khi tư thế bị sai dáng."
+
+------------------------------------------------------------------------
+SLIDE 19: DEMO GIAO DIỆN - NHẬT KÝ TẬP LUYỆN
+------------------------------------------------------------------------
+- Tiêu đề slide: Giao Diện Nhật Ký & Lịch Sử Tập Luyện
+- Nội dung hiển thị:
+  + Thống kê biểu đồ cột lượng calo tiêu thụ thực tế theo tuần/tháng.
+  + Nhật ký chi tiết của từng buổi tập: Số Rep tập đúng, số Rep tập sai lỗi tư thế để người dùng theo dõi và tự điều chỉnh.
+  + Giao diện Streak chuyên cần hàng tháng dạng Neon.
+- Ảnh minh họa: [Ảnh: screenshot_nhat_ky_thong_ke.png]
+- Gợi ý lời nói: "Màn hình nhật ký giúp người dùng có cái nhìn tổng quan về tiến độ rèn luyện của mình. Biểu đồ thống kê chi tiết số rep đúng và sai giúp họ cải thiện chất lượng động tác qua từng ngày."
+
+------------------------------------------------------------------------
+SLIDE 20: KẾT QUẢ THỬ NGHIỆM - ĐỘ CHÍNH XÁC AI COACH
+------------------------------------------------------------------------
+- Tiêu đề slide: Kết Quả Thử Nghiệm - Độ Chính Xác Đếm Rep
+- Nội dung hiển thị:
+  + Thử nghiệm thực tế với 5 người dùng ở nhiều góc quay camera và khoảng cách khác nhau (2m - 3m).
+  + Kết quả độ chính xác trung bình đếm Rep:
+    * Bài Squat: 96.5%
+    * Bài Plank (Đo giây): 98.2%
+    * Bài Burpee (Bài phức tạp): 92.4% (Nhờ cơ chế Global Recovery khắc phục tốt lỗi motion blur).
+- Ảnh minh họa: [Ảnh: bieu_do_do_chinh_xac_rep.png]
+- Gợi ý lời nói: "Chúng em đã thực nghiệm ứng dụng trên 5 người dùng thực tế. Nhờ thuật toán máy trạng thái kết hợp cơ chế Global Recovery, độ chính xác đếm rep trung bình đạt trên 95% ở mọi bài tập, kể cả bài Burpee phức tạp."
+
+------------------------------------------------------------------------
+SLIDE 21: KẾT QUẢ THỬ NGHIỆM - HIỆU NĂNG ỨNG DỤNG
+------------------------------------------------------------------------
+- Tiêu đề slide: Kết Quả Thử Nghiệm - Hiệu Năng & FPS
+- Nội dung hiển thị:
+  + Hiệu năng xử lý AI cục bộ (ML Kit):
+    * Thiết bị Android cấu hình cao (Snapdragon 8 Gen 1): 30 FPS (mượt mà tối đa).
+    * Thiết bị Android tầm trung (Snapdragon 680): 24 - 26 FPS (đạt yêu cầu đếm rep thời gian thực).
+  + Tối ưu hóa: Bỏ qua xử lý các frame camera trùng lặp hoặc mờ để giảm tải CPU và tiết kiệm pin thiết bị.
+- Ảnh minh họa: [Ảnh: bieu_do_fps_va_nhiet_do_pin.png]
+- Gợi ý lời nói: "Về mặt hiệu năng, ứng dụng đạt mức khung hình từ 24 đến 30 FPS trên các máy tầm trung trở lên, đảm bảo tốc độ phản hồi real-time mà không gây nóng máy hay hao pin quá mức nhờ thuật toán lọc frame rác."
+
+------------------------------------------------------------------------
+SLIDE 22: ƯU ĐIỂM VÀ HẠN CHẾ CỦA ĐỀ TÀI
+------------------------------------------------------------------------
+- Tiêu đề slide: Ưu Điểm & Hạn Chế
+- Nội dung hiển thị:
+  + **Ưu điểm**:
+    * Nhận diện dáng tập và cảnh báo giọng nói tiếng Việt trực quan, thời gian thực.
+    * Tích hợp cơ chế offline-first lưu trữ dữ liệu thông minh.
+    * Thuật toán an toàn sinh học cá nhân hóa rất tốt.
+  + **Hạn chế**:
+    * Nhận diện dễ bị lỗi hoặc mất dấu nếu camera bị che khuất một phần khớp cơ thể hoặc điều kiện ánh sáng quá tối.
+- Ảnh minh họa: [Ảnh: uu_nhuoc_diem.png]
+- Gợi ý lời nói: "Đề tài có ưu điểm lớn ở khả năng phản hồi giọng nói tiếng Việt tức thì và chạy mượt offline. Tuy nhiên, hạn chế lớn nhất là camera vẫn khó nhận diện chuẩn xác nếu người tập đứng ở nơi quá tối hoặc có đồ vật che khuất khớp."
+
+------------------------------------------------------------------------
+SLIDE 23: HƯỚNG PHÁT TRIỂN TƯƠNG LAI
+------------------------------------------------------------------------
+- Tiêu đề slide: Hướng Phát Triển Tương Lai
+- Nội dung hiển thị:
+  + Nghiên cứu các mô hình Pose 3D nâng cao hơn để quét chiều sâu cơ thể chuẩn xác.
+  + Kết nối và đồng bộ dữ liệu với thiết bị đeo thông minh (Smartwatch) để đo nhịp tim, lượng calo sinh lý thực tế.
+  + Đưa ứng dụng lên chợ ứng dụng Google Play và App Store để thương mại hóa sản phẩm.
+- Ảnh minh họa: [Ảnh: ket_noi_smartwatch.jpg]
+- Gợi ý lời nói: "Trong tương lai, chúng em hướng tới việc kết nối ứng dụng với các thiết bị vòng đeo tay thông minh để đo nhịp tim người tập, giúp cảnh báo kịp thời nếu họ tập quá sức lực."
+
+------------------------------------------------------------------------
+SLIDE 24: LỜI CẢM ƠN (KẾT THÚC)
+------------------------------------------------------------------------
+- Tiêu đề slide: Xin Chân Thành Cảm Ơn!
+- Nội dung hiển thị:
+  + Cảm ơn Thầy hướng dẫn - ThS. Huỳnh Thanh Tú.
+  + Cảm ơn Hội đồng phản biện đã chú ý lắng nghe.
+  + Mong nhận được ý kiến đóng góp từ Quý Thầy Cô để hoàn thiện đề tài.
+  + **Hỏi & Đáp (Q&A)**
+- Ảnh minh họa: [Ảnh: slide_thank_you.jpg]
+- Gợi ý lời nói: "Chúng em xin chân thành cảm ơn Thầy Huỳnh Thanh Tú cùng quý Thầy Cô trong Hội đồng đã dành thời gian lắng nghe bài thuyết trình. Chúng em rất mong nhận được những nhận xét, đóng góp của Thầy Cô để đồ án tốt nghiệp được hoàn thiện nhất. Xin cảm ơn quý Thầy Cô."
+========================================================================

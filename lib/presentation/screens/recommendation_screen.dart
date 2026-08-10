@@ -636,7 +636,6 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
           _age,
           _selectedGoal,
           _gender,
-          activeCount: _customSelectedExercises.isNotEmpty ? _customSelectedExercises.length : 4,
         );
         final customList = _buildCustomExerciseList(scientificTargets);
         
@@ -673,8 +672,21 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final validExercises = exercises
         .where((e) => _isExerciseSelectableForDay(e, selectedDayDate, bmi, age))
         .toList();
-
     if (validExercises.isEmpty) return;
+
+    if (_hasStartedTodayWorkout()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Bạn đã bắt đầu tập luyện ngày hôm nay. Không thể thay đổi bài tập!',
+            ),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() {
       _isCustomSelectionActive = true;
@@ -806,6 +818,32 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             ),
           ),
         ),
+        if (_hasStartedTodayWorkout()) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  size: 14,
+                  color: AppTheme.errorRed,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Bạn đã bắt đầu tập luyện hôm nay. Các nhóm bài tập được khóa cố định.',
+                    style: TextStyle(
+                      color: AppTheme.errorRed.withValues(alpha: 0.9),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         if (_showExerciseGroups) ...[
           const SizedBox(height: 8),
           ..._exerciseGroups.entries.map((entry) {
@@ -879,7 +917,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                         ),
                       ),
                       TextButton(
-                        onPressed: availableExercises.isEmpty
+                        onPressed: (availableExercises.isEmpty || _hasStartedTodayWorkout())
                             ? null
                             : () => _toggleExerciseGroup(
                                 groupName,
@@ -1386,6 +1424,31 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     final completionKeys =
         _completedExerciseKeysByDay[dayKey] ?? const <String>{};
     return completionKeys.contains(type.name);
+  }
+
+  bool _hasStartedTodayWorkout() {
+    if (_savedSchedule.isEmpty) return false;
+    final int todayIndex = DateTime.now().weekday - 1;
+    final int safeTodayIndex = 7 + todayIndex;
+    if (safeTodayIndex >= _savedSchedule.length) return false;
+    final todayData = _savedSchedule[safeTodayIndex];
+    final exercises = todayData['exercises'] as List? ?? [];
+    final selectedDate = _getSelectedDayDate(safeTodayIndex);
+    
+    for (final ex in exercises) {
+      if (ex is! Map) continue;
+      final rawType = ex['type'];
+      ExerciseType? type;
+      if (rawType is ExerciseType) {
+        type = rawType;
+      } else if (rawType is String) {
+        type = _exerciseTypeFromName(rawType);
+      }
+      if (type != null && _isExerciseCompletedForDay(type, selectedDate)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _loadCompletedExercisesForDay(DateTime day) async {
