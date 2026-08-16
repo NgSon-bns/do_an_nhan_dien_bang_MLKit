@@ -7,12 +7,12 @@ class PushUpEvaluator extends BasePoseEvaluator {
   String _motionState = 'UP';
   final double _landmarkConfidenceThreshold = 0.55;
   bool _isPostureCorrectInCurrentRep = true;
-  bool _isPushUpDeepEnoughInCurrentRep = false; 
+  bool _isPushUpDeepEnoughInCurrentRep = false;
   bool _isRightSideVisible = true;
   int _reps = 0;
 
-  double _standingShoulderY = 0; 
-  int _errorFrames = 0; 
+  double _standingShoulderY = 0;
+  int _errorFrames = 0;
   bool isBackCorrect = true;
 
   @override
@@ -37,7 +37,6 @@ class PushUpEvaluator extends BasePoseEvaluator {
     String feedback = '';
     bool shouldCountRep = false;
 
-    
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
@@ -58,7 +57,6 @@ class PushUpEvaluator extends BasePoseEvaluator {
       );
     }
 
-    
     double? elbowAngle;
     if ((rightShoulder!.x < rightHip!.x) &&
         _isLandmarkVisible(rightShoulder) &&
@@ -88,30 +86,30 @@ class PushUpEvaluator extends BasePoseEvaluator {
         feedbackMessage: 'Hãy nghiêng người để camera thấy rõ khuỷu tay',
       );
 
-    final currentShoulder = _isRightSideVisible ? rightShoulder! : leftShoulder!;
+    final currentShoulder = _isRightSideVisible
+        ? rightShoulder!
+        : leftShoulder!;
     final currentHip = _isRightSideVisible ? rightHip! : leftHip!;
 
-    
     if (elbowAngle > 160 || _standingShoulderY == 0) {
       _standingShoulderY = currentShoulder.y;
     }
 
-    
-    double torsoLength = PoseMath.calculateDistance(currentShoulder, currentHip);
-    if (torsoLength < 1) torsoLength = 1; 
+    double torsoLength = PoseMath.calculateDistance(
+      currentShoulder,
+      currentHip,
+    );
+    if (torsoLength < 1) torsoLength = 1;
 
-    
     if (_standingShoulderY > 0) {
       double verticalDisplacement = currentShoulder.y - _standingShoulderY;
       double normalizedDisplacement = verticalDisplacement / torsoLength;
 
-      
-      if (normalizedDisplacement >= 0.10) {
+      if (normalizedDisplacement >= 0.08) {
         _isPushUpDeepEnoughInCurrentRep = true;
       }
     }
 
-    
     double backAngle = (rightShoulder!.x > rightHip!.x)
         ? PoseMath.calculateAngle(
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
@@ -124,13 +122,11 @@ class PushUpEvaluator extends BasePoseEvaluator {
             (_isRightSideVisible ? rightShoulder! : leftShoulder!),
           );
 
-    
-    bool isBackAligned = (backAngle >= 152 && backAngle <= 200);
+    bool isBackAligned = (backAngle >= 160 && backAngle <= 200);
 
-    
     if (!isBackAligned) {
       _errorFrames++;
-      if (_errorFrames > 8) { 
+      if (_errorFrames > 7) {
         isPostureCorrect = false;
         feedback = 'Giữ vai hông và chân thẳng hàng!';
         _isPostureCorrectInCurrentRep = false;
@@ -145,12 +141,12 @@ class PushUpEvaluator extends BasePoseEvaluator {
       if (_motionState == 'UP') {
         _motionState = 'DOWN';
         _isPostureCorrectInCurrentRep = true;
-        _isPushUpDeepEnoughInCurrentRep = false; 
+        _isPushUpDeepEnoughInCurrentRep = false;
         print(
           'down Elbow Angle: $elbowAngle, Back Angle: $backAngle, Shoulder Y: ${currentShoulder.y}, Standing Shoulder Y: $_standingShoulderY, Error Frames: $_errorFrames, Is Posture Correct: $_isPostureCorrectInCurrentRep, Is PushUp Deep Enough: $_isPushUpDeepEnoughInCurrentRep,shouldCountRep: $shouldCountRep',
-        ); 
+        );
       }
-    } else if (elbowAngle > 150) {
+    } else if (elbowAngle > 140) {
       if (_motionState == 'DOWN') {
         _motionState = 'UP';
         if (_isPostureCorrectInCurrentRep && _isPushUpDeepEnoughInCurrentRep) {
@@ -171,7 +167,6 @@ class PushUpEvaluator extends BasePoseEvaluator {
       }
     }
 
-    
     if (isPostureCorrect) {
       if (shouldCountRep) {
         feedback = "Tốt lắm!";

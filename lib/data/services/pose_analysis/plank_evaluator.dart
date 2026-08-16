@@ -7,7 +7,6 @@ import 'pose_analysis_result.dart';
 class PlankEvaluator extends BasePoseEvaluator {
   final double _landmarkConfidenceThreshold = 0.45;
 
-  
   int _errorFrames = 0;
   final int _maxAllowedErrorFrames = 10;
 
@@ -22,32 +21,36 @@ class PlankEvaluator extends BasePoseEvaluator {
   }
 
   bool _isSideVisible(Pose pose, bool isRight) {
-    final shoulder = pose.landmarks[isRight ? PoseLandmarkType.rightShoulder : PoseLandmarkType.leftShoulder];
-    final hip = pose.landmarks[isRight ? PoseLandmarkType.rightHip : PoseLandmarkType.leftHip];
-    final knee = pose.landmarks[isRight ? PoseLandmarkType.rightKnee : PoseLandmarkType.leftKnee];
-    final ankle = pose.landmarks[isRight ? PoseLandmarkType.rightAnkle : PoseLandmarkType.leftAnkle];
+    final shoulder =
+        pose.landmarks[isRight
+            ? PoseLandmarkType.rightShoulder
+            : PoseLandmarkType.leftShoulder];
+    final hip =
+        pose.landmarks[isRight
+            ? PoseLandmarkType.rightHip
+            : PoseLandmarkType.leftHip];
+    final knee =
+        pose.landmarks[isRight
+            ? PoseLandmarkType.rightKnee
+            : PoseLandmarkType.leftKnee];
+    final ankle =
+        pose.landmarks[isRight
+            ? PoseLandmarkType.rightAnkle
+            : PoseLandmarkType.leftAnkle];
 
     return _isLandmarkVisible(shoulder) &&
         _isLandmarkVisible(hip) &&
         (_isLandmarkVisible(knee) || _isLandmarkVisible(ankle));
   }
 
-  
-  
   bool _isInPlankPosition(PoseLandmark shoulder, PoseLandmark legJoint) {
     final double dx = (shoulder.x - legJoint.x).abs();
     final double dy = (shoulder.y - legJoint.y).abs();
 
-    
-    
     if (dx < 0.15) return false;
 
-    
-    
     final double bodyInclineAngle = math.atan2(dy, dx) * (180 / math.pi);
 
-    
-    
     const double maxPlankInclineAngle = 40.0;
 
     return bodyInclineAngle <= maxPlankInclineAngle;
@@ -66,9 +69,11 @@ class PlankEvaluator extends BasePoseEvaluator {
     bool leftSideVisible = _isSideVisible(pose, false);
 
     if (rightSideVisible || leftSideVisible) {
-      final bool useRightSide = rightSideVisible && (!leftSideVisible || 
-          (pose.landmarks[PoseLandmarkType.rightShoulder]!.likelihood > 
-           pose.landmarks[PoseLandmarkType.leftShoulder]!.likelihood));
+      final bool useRightSide =
+          rightSideVisible &&
+          (!leftSideVisible ||
+              (pose.landmarks[PoseLandmarkType.rightShoulder]!.likelihood >
+                  pose.landmarks[PoseLandmarkType.leftShoulder]!.likelihood));
 
       final shoulder = useRightSide
           ? pose.landmarks[PoseLandmarkType.rightShoulder]!
@@ -86,11 +91,8 @@ class PlankEvaluator extends BasePoseEvaluator {
       final bool hasAnkle = _isLandmarkVisible(ankle);
       final legJoint = hasAnkle ? ankle! : knee!;
 
-      
-      
-      
       if (!_isInPlankPosition(shoulder, legJoint)) {
-        _errorFrames = 0; 
+        _errorFrames = 0;
         return PoseAnalysisResult(
           isPostureCorrect: false,
           feedbackMessage: 'Hãy nằm ngang xuống để bắt đầu tập Plank!',
@@ -101,22 +103,23 @@ class PlankEvaluator extends BasePoseEvaluator {
         );
       }
 
-      
-      
-      
       double bodyLineAngle = (shoulder.x < hip.x)
-          ? PoseMath.calculateAngle(shoulder, hip, legJoint)
-          : PoseMath.calculateAngle(legJoint, hip, shoulder);
+          ? PoseMath.getElbowAngle(shoulder, hip, legJoint)
+          : PoseMath.getElbowAngle(legJoint, hip, shoulder);
 
       bool isCurrentPostureCorrect = true;
-      
+
       if (legJoint.x != shoulder.x) {
-        double expectedHipY = shoulder.y + (legJoint.y - shoulder.y) * (hip.x - shoulder.x) / (legJoint.x - shoulder.x);
-        
-        if (bodyLineAngle < 165) {
+        double expectedHipY =
+            shoulder.y +
+            (legJoint.y - shoulder.y) *
+                (hip.x - shoulder.x) /
+                (legJoint.x - shoulder.x);
+
+        if (bodyLineAngle < 160) {
           isCurrentPostureCorrect = false;
           isBackCorrect = false;
-          
+
           if (hip.y < expectedHipY - 0.04) {
             feedbackErr = 'Hông quá cao, hãy hạ thấp hông xuống!';
           } else if (hip.y > expectedHipY + 0.04) {
@@ -125,9 +128,9 @@ class PlankEvaluator extends BasePoseEvaluator {
             feedbackErr = 'Hãy giữ vai, hông và chân thẳng hàng!';
           }
         }
+        print('$bodyLineAngle, $hip.y, $expectedHipY');
       }
-
-      
+      print(bodyLineAngle);
       if (!isCurrentPostureCorrect) {
         _errorFrames++;
       } else {

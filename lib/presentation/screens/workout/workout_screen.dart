@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, FileOptions;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show Supabase, FileOptions;
 
 import 'package:demo/core/theme/app_theme.dart';
 
@@ -29,7 +31,7 @@ class WorkoutScreen extends StatefulWidget {
   final String? sourceTag;
   final List<CameraDescription> cameras;
   final int initialCompletedCount;
-
+  
   const WorkoutScreen({
     super.key,
     required this.exercise,
@@ -57,46 +59,186 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   bool _isFullBodyVisible = false;
   bool _isWorkoutComplete = false;
   bool _hasShownCompletionDialog = false;
-  
   final WorkoutSession _session = WorkoutSession();
+
+  // --- ĐẾM BẰNG GIỌNG NÓI (TEXT-TO-SPEECH) ---
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isSpeaking = false;
+  final List<String> _speechQueue = [];
+  int _speechGeneration = 0;
+  int _lastAnnouncedRestSecond = -1;
   late final List<int> _setPlan;
   int _currentSetIndex = 0;
   int _currentSetCount = 0;
   Timer? _workoutTimer;
-  Pose? _lastValidPose; 
-  int _lostFrameCount = 0; 
-  final int _maxAllowedLostFrames = 15; 
-  
+  Pose? _lastValidPose;
+  int _lostFrameCount = 0;
+  final int _maxAllowedLostFrames = 15;
+
   List<Pose> _poses = [];
 
   late BasePoseEvaluator _evaluator;
 
-  
   bool _wasPostureCorrectLastFrame = true;
 
-  
   bool _isWorkoutStarted = false;
   bool _isAligned = false;
   int _countdownSeconds = -1;
   Timer? _countdownTimer;
   int _consecutiveAlignedFrames = 0;
-  final int _requiredAlignedFrames = 12; 
+  final int _requiredAlignedFrames = 12;
   String _alignmentFeedback = 'Hãy di chuyển vào khung hình';
   Size? _imageSize;
 
-  
   final List<File> _capturedErrorImages = [];
   bool _isCapturingError = false;
   final Set<String> _capturedErrorTypes = {};
 
+  // --- BIẾN ĐO LƯỜNG HIỆU NĂNG & FPS ---
+  int _cameraFrameCounter = 0;
+  int _processedFrameCounter = 0;
+  int _currentCaptureFps = 0;
+  int _currentProcessedFps = 0;
+  Timer? _performanceTimer;
+  int _lastExecutionMs = 0; // Lưu thời gian xử lý frame gần nhất (ms)
+
+  // --- BỘ LỌC NHIỄU TỌA ĐỘ (MOVING AVERAGE / LOW-PASS FILTER) ---
+  final Map<PoseLandmarkType, List<Offset>> _landmarkHistory = {};
+  final int _filterWindowSize = 3; // Số frame dùng để lấy trung bình
+
+  Pose _applyLowPassFilter(Pose currentPose) {
+    Map<PoseLandmarkType, PoseLandmark> filteredLandmarks = {};
+
+    currentPose.landmarks.forEach((type, landmark) {
+      _landmarkHistory.putIfAbsent(type, () => []);
+
+      _landmarkHistory[type]!.add(Offset(landmark.x, landmark.y));
+
+      if (_landmarkHistory[type]!.length > _filterWindowSize) {
+        _landmarkHistory[type]!.removeAt(0);
+      }
+
+      double avgX = 0;
+      double avgY = 0;
+      int count = _landmarkHistory[type]!.length;
+      for (var point in _landmarkHistory[type]!) {
+        avgX += point.dx;
+        avgY += point.dy;
+      }
+      avgX /= count;
+      avgY /= count;
+
+      filteredLandmarks[type] = PoseLandmark(
+        type: landmark.type,
+        x: avgX,
+        y: avgY,
+        z: landmark.z,
+        likelihood: landmark.likelihood,
+      );
+    });
+
+    return Pose(landmarks: filteredLandmarks);
+  }
+  // -------------------------------------------------------------
+
+  // --- KHỞI TẠO & PHÁT GIỌNG NÓI ĐẾM SỐ ---
+  Future<void> _initTts() async {
+    try {
+      await _flutterTts.setLanguage('vi-VN');
+      await _flutterTts.setSpeechRate(0.55);
+      await _flutterTts.setPitch(1.0);
+      await _flutterTts.setVolume(1.0);
+      // Chờ 1 câu đọc xong hẳn rồi mới coi là "rảnh" để đọc câu tiếp theo
+      // trong hàng đợi -> không còn tình trạng số bị cắt ngang hay bỏ sót.
+      await _flutterTts.awaitSpeakCompletion(true);
+      _flutterTts.setErrorHandler((_) {
+        _isSpeaking = false;
+      });
+    } catch (e) {
+      // Không để lỗi khởi tạo TTS (thiếu plugin, thiết bị không hỗ trợ...)
+      // làm ảnh hưởng đến các chức năng khác của màn hình tập luyện.
+      debugPrint('Lỗi khởi tạo TTS (bỏ qua, không ảnh hưởng đếm rep/plank): $e');
+    }
+  }
+
+  /// Thêm một câu/cụm từ vào hàng đợi đọc (dùng cho thông báo như
+  /// "Nghỉ 30 giây", "Bắt đầu!"...). Đọc TUẦN TỰ, không chồng tiếng.
+  void _enqueueText(String text) {
+    try {
+      if (_speechQueue.isNotEmpty && _speechQueue.last == text) return;
+      _speechQueue.add(text);
+      _speakNextInQueue();
+    } catch (e) {
+      debugPrint('Lỗi enqueue TTS (bỏ qua): $e');
+    }
+  }
+
+  /// Thêm một con số vào hàng đợi đọc. Các số được đọc TUẦN TỰ, không
+  /// chồng lên nhau và không bị cắt ngang, nên không bị "nhảy số".
+  void _enqueueSpeak(int count) => _enqueueText('$count');
+
+  /// Đọc NGAY LẬP TỨC, ưu tiên hơn mọi thứ đang chờ trong hàng đợi (đếm
+  /// rep, đếm giây plank, thông báo nghỉ...). Dùng cho cảnh báo sai tư thế
+  /// -> người tập cần nghe ngay, không được để chờ đọc hết số đang đếm dở.
+  void _speakPriority(String text) {
+    try {
+      // Tăng "thế hệ" để vòng lặp đọc hiện tại (nếu đang chạy) tự dừng lại
+      // ở lần kiểm tra kế tiếp, thay vì tiếp tục đọc nốt hàng đợi cũ.
+      _speechGeneration++;
+      _speechQueue
+        ..clear()
+        ..add(text);
+      _flutterTts.stop(); // Cắt ngang câu đang đọc dở ngay lập tức
+      _isSpeaking = false;
+      _speakNextInQueue();
+    } catch (e) {
+      debugPrint('Lỗi ưu tiên TTS (bỏ qua): $e');
+    }
+  }
+
+  /// Xử lý hàng đợi bằng MỘT vòng lặp duy nhất (không dựa vào completion
+  /// handler để gọi đệ quy), tránh tình trạng chạy chồng hai tiến trình
+  /// đọc cùng lúc. Kiểm tra "thế hệ" (generation) ở mỗi bước để tự dừng
+  /// ngay khi có yêu cầu đọc ưu tiên chen ngang.
+  Future<void> _speakNextInQueue() async {
+    if (_isSpeaking) return;
+    _isSpeaking = true;
+    final int myGeneration = _speechGeneration;
+    try {
+      while (_speechQueue.isNotEmpty && myGeneration == _speechGeneration) {
+        final String next = _speechQueue.removeAt(0);
+        await _flutterTts.speak(next);
+      }
+    } catch (e) {
+      debugPrint('Lỗi phát TTS (bỏ qua, không ảnh hưởng đếm rep/plank): $e');
+    } finally {
+      // Chỉ vòng lặp thuộc "thế hệ" hiện tại mới được phép reset cờ, để
+      // tránh vòng lặp cũ (đã bị ngắt) ghi đè trạng thái của vòng lặp mới.
+      if (myGeneration == _speechGeneration) {
+        _isSpeaking = false;
+      }
+    }
+  }
+
+  void _clearSpeechQueue() {
+    _speechGeneration++;
+    _speechQueue.clear();
+    try {
+      _flutterTts.stop();
+    } catch (e) {
+      debugPrint('Lỗi dừng TTS (bỏ qua): $e');
+    }
+    _isSpeaking = false;
+  }
+  // -------------------------------------------------------------
+
   @override
   void initState() {
     super.initState();
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     _poseDetectorService = PoseDetectorService();
     _poseDetectorService.initialize();
+    _initTts();
     _evaluator = EvaluatorFactory.create(widget.exercise.type);
     _setPlan = widget.noSplit
         ? [widget.targetCount]
@@ -129,9 +271,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     _session.feedbackMessage = _alignmentFeedback;
 
-    
     _findSelfieCamera();
     _initializeCamera();
+
+    // Khởi động bộ đếm FPS và hiệu năng mỗi giây
+    _performanceTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _currentCaptureFps = _cameraFrameCounter;
+        _currentProcessedFps = _processedFrameCounter;
+        _cameraFrameCounter = 0;
+        _processedFrameCounter = 0;
+      });
+      print(
+        'PERFORMANCE -> Camera FPS: $_currentCaptureFps | Processed FPS: $_currentProcessedFps | Time per frame: ${_lastExecutionMs}ms',
+      );
+    });
   }
 
   void _findSelfieCamera() {
@@ -141,7 +296,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         return;
       }
     }
-    _currentCameraIndex = 0; 
+    _currentCameraIndex = 0;
   }
 
   Future<void> _initializeCamera() async {
@@ -162,6 +317,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     try {
       await _cameraController.initialize();
+      await _cameraController.setFocusMode(FocusMode.locked);
+      await _cameraController.setExposureMode(ExposureMode.locked);
       if (!mounted) return;
 
       setState(() {
@@ -180,6 +337,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     _lastFrameTimeMs = 0;
     await _cameraController.startImageStream((cameraImage) {
+      _cameraFrameCounter++; // Đếm tổng số frame camera trả về
+
       final now = DateTime.now().millisecondsSinceEpoch;
       if (!_isProcessing && mounted && (now - _lastFrameTimeMs >= 120)) {
         _isProcessing = true;
@@ -206,19 +365,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     await _startCameraStream();
   }
 
-  
   void _startTimer() {
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
         _session.elapsedSeconds++;
 
-        
         if (widget.exercise.type == ExerciseType.plank) {
-          if (_isPoseDetected &&
+          final bool isHoldingCorrectly =
+              _isPoseDetected &&
               _session.isPostureCorrect &&
-              _isFullBodyVisible) {
+              _isFullBodyVisible;
+
+          if (isHoldingCorrectly) {
+            // Tư thế đúng -> đếm +1 mỗi lần tick (KHÔNG tính theo đồng hồ
+            // thực DateTime.now()), để số hiển thị luôn tăng đúng từng đơn
+            // vị, không bị nhảy cóc dù frame xử lý pose có bị trễ/giật.
             _session.activeHoldSeconds++;
+
+            // Đọc to số giây mới. Vì luôn +1 mỗi lần nên giọng nói theo
+            // kịp số hiển thị, không bị nhảy số hay đọc dồn cụm số.
+            _enqueueSpeak(_session.activeHoldSeconds);
+
             if (_session.activeHoldSeconds >= widget.targetCount) {
               _isWorkoutComplete = true;
               _session.feedbackMessage =
@@ -232,6 +400,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               }
             }
           }
+          // Tư thế sai -> không làm gì cả, giữ nguyên số giây đã đếm được
+          // (dừng đếm) cho đến khi tư thế đúng trở lại.
         }
 
         if (_session.isResting) {
@@ -242,15 +412,24 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           _session.feedbackMessage =
               'Đang nghỉ ${_session.restSecondsLeft}s. Chuẩn bị set tiếp theo.';
 
+          // Đếm ngược bằng giọng nói trong 5 giây cuối của thời gian nghỉ.
+          if (_session.restSecondsLeft > 0 &&
+              _session.restSecondsLeft <= 5 &&
+              _session.restSecondsLeft != _lastAnnouncedRestSecond) {
+            _lastAnnouncedRestSecond = _session.restSecondsLeft;
+            _enqueueSpeak(_session.restSecondsLeft);
+          }
+
           if (_session.restSecondsLeft == 0) {
             _session.isResting = false;
             _session.announcementMessage =
                 'Kết thúc nghỉ. Bắt đầu set tiếp theo.';
             _session.feedbackMessage = 'Bắt đầu set tiếp theo!';
+            _lastAnnouncedRestSecond = -1;
+            _enqueueText('Bắt đầu!');
           }
         }
 
-        
         _session.updateCalories(
           widget.exercise.caloriesPerMin,
           isDurationBased: widget.exercise.isDurationBased,
@@ -259,7 +438,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     });
   }
 
-  
   Future<void> _toggleCamera() async {
     if (widget.cameras.length < 2) return;
 
@@ -278,10 +456,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     await _initializeCamera();
   }
 
-  
   void _resetWorkout() {
     _evaluator.reset();
     _cancelCountdown();
+    _clearSpeechQueue();
+    _landmarkHistory.clear(); // Xóa lịch sử lọc tọa độ khi reset
     setState(() {
       _session.reset();
       _currentSetIndex = 0;
@@ -292,6 +471,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       _isWorkoutStarted = false;
       _isAligned = false;
       _consecutiveAlignedFrames = 0;
+      _lastAnnouncedRestSecond = -1;
       _session.feedbackMessage = _alignmentFeedback;
     });
   }
@@ -339,10 +519,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (_isWorkoutStarted &&
         _lostFrameCount < _maxAllowedLostFrames &&
         _lastValidPose != null) {
-      
       _analyzePose(_lastValidPose!);
     } else {
-      
       if (_isWorkoutStarted) {
         _evaluator.reset();
       } else {
@@ -361,7 +539,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
   }
 
-  
   Future<void> _processImage(CameraImage image) async {
     if (_session.isResting) {
       if (mounted) {
@@ -375,17 +552,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return;
     }
 
-    final poses = await _poseDetectorService.processCameraImage(
+    // --- BẮT ĐẦU ĐO THỜI GIAN XỬ LÝ FRAME BẰNG STOPWATCH ---
+    final stopwatch = Stopwatch()..start();
+
+    final rawPoses = await _poseDetectorService.processCameraImage(
       image,
       _cameraController,
     );
+
+    stopwatch.stop();
+    _lastExecutionMs = stopwatch.elapsedMilliseconds;
+    _processedFrameCounter++; // Đếm số frame thực tế đã xử lý AI xong
 
     if (!mounted) {
       _isProcessing = false;
       return;
     }
 
-    
+    // Áp dụng bộ lọc nhiễu tọa độ cho khung hình đầu tiên nếu có
+    final poses = rawPoses.isNotEmpty
+        ? [_applyLowPassFilter(rawPoses.first)]
+        : <Pose>[];
+
     if (poses.isNotEmpty && _imageSize == null) {
       if (mounted) {
         setState(() {
@@ -403,7 +591,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     if (poses.isNotEmpty) {
       final pose = poses.first;
 
-      
       double totalLikelihood = 0.0;
       int landmarkCount = 0;
       for (final landmark in pose.landmarks.values) {
@@ -415,7 +602,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           : 0.0;
 
       if (avgLikelihood < 0.45) {
-        
         _handleNoPersonDetected();
       } else {
         _lostFrameCount = 0;
@@ -423,7 +609,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _isPoseDetected = true;
 
         if (!_isWorkoutStarted) {
-          
           final alignmentResult = AlignmentHelper.checkAlignment(
             pose: pose,
             exerciseType: widget.exercise.type,
@@ -455,8 +640,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             _cancelCountdown();
           }
         } else {
-          
-          
           if (_checkFullBodyVisibility(pose, widget.exercise.type)) {
             _isFullBodyVisible = true;
             _analyzePose(pose);
@@ -490,22 +673,23 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _isProcessing = false;
   }
 
-  
   void _analyzePose(Pose pose) {
     final result = _evaluator.evaluate(pose);
 
-    
     if (!result.isPostureCorrect && _wasPostureCorrectLastFrame) {
       _session.incorrectPostureCount++;
-      _captureIncorrectPose(
-        pose,
-        result.feedbackMessage.isEmpty ? 'Sai tư thế' : result.feedbackMessage,
-      );
+      final String errorMessage =
+          result.feedbackMessage.isEmpty ? 'Sai tư thế' : result.feedbackMessage;
+      _captureIncorrectPose(pose, errorMessage);
+      // Ưu tiên đọc cảnh báo sai tư thế NGAY, không chờ đọc hết hàng đợi
+      // đếm rep/giây plank đang dang dở.
+      _speakPriority(errorMessage);
     }
 
     if (result.shouldCountRep) {
       _session.counter++;
       _currentSetCount++;
+      _enqueueSpeak(_session.counter); // Đếm bằng giọng nói khi tập đúng
       final currentSetTarget = _setPlan[_currentSetIndex];
       if (_currentSetCount >= currentSetTarget) {
         if (_currentSetIndex < _setPlan.length - 1) {
@@ -517,6 +701,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               'Nghỉ 30 giây. Chuẩn bị cho set tiếp theo.';
           _session.feedbackMessage =
               'Đang nghỉ 30s. Set tiếp theo sẽ bắt đầu sau.';
+          _lastAnnouncedRestSecond = 30;
+          _enqueueText('Nghỉ 30 giây, chuẩn bị cho set tiếp theo');
         } else {
           _isWorkoutComplete = true;
           _session.feedbackMessage =
@@ -532,7 +718,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
     }
 
-    
     setState(() {
       _session.isPostureCorrect = result.isPostureCorrect;
       if (!_session.isResting) {
@@ -544,29 +729,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _captureIncorrectPose(Pose pose, String feedbackMessage) async {
-    if (_isCapturingError || _capturedErrorTypes.contains(feedbackMessage)) return;
-    
+    if (_isCapturingError || _capturedErrorTypes.contains(feedbackMessage))
+      return;
+
     if (_capturedErrorTypes.length >= 3) return;
 
     _capturedErrorTypes.add(feedbackMessage);
     _isCapturingError = true;
 
     try {
-      
       await _executeSingleCapture(pose, '$feedbackMessage (Bắt đầu sai)');
 
-      
       await Future.delayed(const Duration(milliseconds: 600));
       if (mounted && !_session.isPostureCorrect) {
         final currentPose = _poses.isNotEmpty ? _poses.first : pose;
-        await _executeSingleCapture(currentPose, '$feedbackMessage (Giữa nhịp)');
+        await _executeSingleCapture(
+          currentPose,
+          '$feedbackMessage (Giữa nhịp)',
+        );
       }
 
-      
       await Future.delayed(const Duration(milliseconds: 600));
       if (mounted && !_session.isPostureCorrect) {
         final currentPose = _poses.isNotEmpty ? _poses.first : pose;
-        await _executeSingleCapture(currentPose, '$feedbackMessage (Cuối nhịp)');
+        await _executeSingleCapture(
+          currentPose,
+          '$feedbackMessage (Cuối nhịp)',
+        );
       }
     } catch (e) {
       debugPrint('Lỗi chuỗi chụp ảnh sai tư thế: $e');
@@ -622,7 +811,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       errorMessage: label,
       isPostureCorrect: false,
       sensorOrientation: _cameraController.description.sensorOrientation,
-      isFrontCamera: _cameraController.description.lensDirection == CameraLensDirection.front,
+      isFrontCamera:
+          _cameraController.description.lensDirection ==
+          CameraLensDirection.front,
     );
 
     _capturedErrorImages.add(bakedFile);
@@ -644,15 +835,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         final File file = _capturedErrorImages[i];
         final String storagePath = '$userId/$workoutId/loi_$i.png';
 
-        
-        await supabase.storage.from('anh_tap_sai').upload(
-          storagePath,
-          file,
-          fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
-        );
+        await supabase.storage
+            .from('anh_tap_sai')
+            .upload(
+              storagePath,
+              file,
+              fileOptions: const FileOptions(
+                cacheControl: '3600',
+                upsert: true,
+              ),
+            );
 
-        
-        final String publicUrl = supabase.storage.from('anh_tap_sai').getPublicUrl(storagePath);
+        final String publicUrl = supabase.storage
+            .from('anh_tap_sai')
+            .getPublicUrl(storagePath);
         urls.add(publicUrl);
       }
     } catch (e) {
@@ -661,11 +857,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     return urls;
   }
 
-  
   bool _checkFullBodyVisibility(Pose pose, ExerciseType type) {
-    print('Checking full body visibility for ${type.name}...');
     if (type == ExerciseType.burpee) {
-      print("ok");
       return true;
     }
     const double standardConfidence = 0.75;
@@ -675,7 +868,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return landmark != null && landmark.likelihood >= threshold;
     }
 
-    
     if (type == ExerciseType.squat ||
         type == ExerciseType.jumping_jack ||
         type == ExerciseType.walking_lunge) {
@@ -714,8 +906,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return true;
     }
 
-    
-    
     final leftSideStandard = [
       PoseLandmarkType.leftShoulder,
       PoseLandmarkType.leftHip,
@@ -779,10 +969,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   void dispose() {
-    
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _performanceTimer?.cancel();
     _countdownTimer?.cancel();
     _workoutTimer?.cancel();
+    try {
+      _flutterTts.stop();
+    } catch (_) {}
     _cameraController.dispose();
     _poseDetectorService.close();
     super.dispose();
@@ -937,12 +1130,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 ),
               ),
             ),
-           ElevatedButton(
+            ElevatedButton(
               onPressed: () async {
-                
                 await _workoutDraftService.clearTodayDraftWorkout();
-              
-                
                 if (context.mounted) {
                   Navigator.pop(dialogContext, true);
                 }
@@ -964,8 +1154,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            )
-
+            ),
           ],
         );
       },
@@ -1003,7 +1192,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pop(context); 
+      Navigator.pop(context);
     }
 
     if (mounted) {
@@ -1015,7 +1204,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<dynamic> _onBackPressed() async {
-    
     _workoutTimer?.cancel();
     await _pauseCameraForDialog();
 
@@ -1132,7 +1320,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 ),
               ),
 
-            
             if (!_isWorkoutComplete) ...[
               TextButton(
                 onPressed: () async {
@@ -1172,7 +1359,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ),
             ],
 
-            
             if (_isWorkoutComplete)
               ElevatedButton(
                 onPressed: () => Navigator.pop(builderContext, 'complete'),
@@ -1202,12 +1388,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     await _resumeCameraAfterDialog();
 
     if (result == null || result == 'resume') {
-      return false; 
+      return false;
     }
 
     if (result == 'complete' && !isOffline) {
       if (!mounted) return 'complete';
-      
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1232,10 +1418,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       }
 
       if (!mounted) return 'complete';
-      Navigator.pop(context); 
+      Navigator.pop(context);
     }
 
-    return result; 
+    return result;
   }
 
   void _skipRest() {
@@ -1246,6 +1432,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         _session.announcementMessage = 'Kết thúc nghỉ. Bắt đầu set tiếp theo.';
         _session.feedbackMessage = 'Bắt đầu set tiếp theo!';
       });
+      _lastAnnouncedRestSecond = -1;
+      _clearSpeechQueue();
+      _enqueueText('Bắt đầu!');
     }
   }
 
@@ -1273,10 +1462,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             : Stack(
                 fit: StackFit.expand,
                 children: [
-                  
                   CameraStreamView(controller: _cameraController),
 
-                  
                   if (_poses.isNotEmpty && _imageSize != null)
                     Positioned.fill(
                       child: CustomPaint(
@@ -1298,7 +1485,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       ),
                     ),
 
-                  
                   if (!_isWorkoutStarted)
                     Positioned.fill(
                       child: Builder(
@@ -1341,7 +1527,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       ),
                     ),
 
-                  
                   if (!_isWorkoutStarted && _countdownSeconds > 0)
                     Positioned.fill(
                       child: Container(
@@ -1378,7 +1563,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       ),
                     ),
 
-                  
                   Positioned.fill(
                     child: WorkoutHudPanel(
                       exercise: widget.exercise,
@@ -1391,7 +1575,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       isWorkoutStarted: _isWorkoutStarted,
                       onBackPressed: () async {
                         final popResult = await _onBackPressed();
-                        if (popResult != false && popResult != null && context.mounted) {
+                        if (popResult != false &&
+                            popResult != null &&
+                            context.mounted) {
                           if (popResult == 'complete' || popResult == 'exit') {
                             await _checkAndHandleTooHeavyWorkout();
                           }
@@ -1405,6 +1591,48 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       onSkipRestPressed: _skipRest,
                     ),
                   ),
+
+                  // --- WIDGET HIỂN THỊ THÔNG SỐ FPS VÀ HIỆU NĂNG GÓC TRÁI ---
+                  Positioned(
+                    top: 50,
+                    left: 20,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Camera FPS: $_currentCaptureFps',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'Processed FPS: $_currentProcessedFps',
+                            style: const TextStyle(
+                              color: Colors.greenAccent,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'Time/Frame: ${_lastExecutionMs}ms',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
       ),
@@ -1412,7 +1640,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _checkAndHandleTooHeavyWorkout() async {
-    
     if (_session.incorrectPostureCount >= 5) {
       final dialogContext = context;
       bool? changeGoal = await showDialog<bool>(
@@ -1459,7 +1686,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ),
               child: const Text(
                 'Đồng ý đổi',
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
@@ -1476,7 +1706,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Đã ghi nhận! Hệ thống sẽ điều chỉnh bài tập ${widget.exercise.name} ra khỏi danh sách tập sắp tới của bạn.'),
+              content: Text(
+                'Đã ghi nhận! Hệ thống sẽ điều chỉnh bài tập ${widget.exercise.name} ra khỏi danh sách tập sắp tới của bạn.',
+              ),
               backgroundColor: Colors.orangeAccent,
               duration: const Duration(seconds: 4),
             ),
@@ -1496,31 +1728,26 @@ class AlignmentFramePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    
     final backgroundPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.65)
       ..style = PaintingStyle.fill;
 
     final path = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    
     final RRect rrect = RRect.fromRectAndRadius(
       rect,
       const Radius.circular(20),
     );
     final cutoutPath = Path()..addRRect(rrect);
 
-    
     final finalPath = Path.combine(PathOperation.difference, path, cutoutPath);
     canvas.drawPath(finalPath, backgroundPaint);
 
-    
     final borderPaint = Paint()
       ..color = isAligned ? AppTheme.neonGreen : Colors.orangeAccent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.5;
 
-    
     final glowPaint = Paint()
       ..color = (isAligned ? AppTheme.neonGreen : Colors.orangeAccent)
           .withValues(alpha: 0.3)
@@ -1531,16 +1758,14 @@ class AlignmentFramePainter extends CustomPainter {
     canvas.drawRRect(rrect, glowPaint);
     canvas.drawRRect(rrect, borderPaint);
 
-    
     final bracketPaint = Paint()
       ..color = isAligned ? AppTheme.neonGreen : Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 5.0
       ..strokeCap = StrokeCap.round;
 
-    const double length = 25.0; 
+    const double length = 25.0;
 
-    
     canvas.drawLine(
       Offset(rect.left, rect.top + length),
       Offset(rect.left, rect.top),
@@ -1552,7 +1777,6 @@ class AlignmentFramePainter extends CustomPainter {
       bracketPaint,
     );
 
-    
     canvas.drawLine(
       Offset(rect.right, rect.top + length),
       Offset(rect.right, rect.top),
@@ -1564,7 +1788,6 @@ class AlignmentFramePainter extends CustomPainter {
       bracketPaint,
     );
 
-    
     canvas.drawLine(
       Offset(rect.left, rect.bottom - length),
       Offset(rect.left, rect.bottom),
@@ -1576,7 +1799,6 @@ class AlignmentFramePainter extends CustomPainter {
       bracketPaint,
     );
 
-    
     canvas.drawLine(
       Offset(rect.right, rect.bottom - length),
       Offset(rect.right, rect.bottom),
